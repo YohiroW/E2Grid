@@ -26,7 +26,7 @@ void UE2GridVisualizeComponent::BuildGridInstancedMeshes()
 	
 	const FRotator Rot = GridOwner->GetActorRotation();
 	const FVector Scale = GridOwner->GetActorScale3D();
-	GridOwner->ForEachGridData([&](TObjectPtr<UGridData> InGridData, const FVector& InWorldPos) -> bool
+	GridOwner->ForEachGridData([&](TObjectPtr<UE2GridRuntimeData> InGridData, const FVector& InWorldPos) -> bool
 	{
 		FTransform InstanceTransform;
 		InstanceTransform.SetLocation(InWorldPos);

@@ -12,7 +12,7 @@ AE2GridManager::AE2GridManager()
 		GridVisualizeComponent->SetupAttachment(RootComponent);
 	}
 	
-	GridDataClass = UGridData::StaticClass();
+	GridDataClass = UE2GridRuntimeData::StaticClass();
 	GridDimension = FIntPoint(10, 10);
 }
 
@@ -28,7 +28,7 @@ void AE2GridManager::Generate()
 	Clear();
 	
 	// Fallback data class
-    UClass* DataClass = GridDataClass ? GridDataClass.Get() : UGridData::StaticClass();
+    UClass* DataClass = GridDataClass ? GridDataClass.Get() : UE2GridRuntimeData::StaticClass();
 
 	const int32 Width = GridDimension.X;
 	const int32 Height = GridDimension.Y;
@@ -41,10 +41,10 @@ void AE2GridManager::Generate()
 	{
 		for (int32 X = 0; X < Width; ++X)
 		{
-			FGridCoord Coord(X , Y);
+			FE2GridCoord Coord(X , Y);
 			int32 GridKey = X + Y * Width;
 			
-			UGridData* GridData = NewObject<UGridData>(this, DataClass);
+			UE2GridRuntimeData* GridData = NewObject<UE2GridRuntimeData>(this, DataClass);
 			GridData->Coord = Coord;
 			GridData->GridKey= GridKey;
 			
@@ -69,7 +69,7 @@ bool AE2GridManager::IsValidGridKey(const int32 InGridKey) const
 	return InGridKey != INVALID_GRID_KEY;
 }
 
-bool AE2GridManager::IsValidGridCoord(const FGridCoord& InCoord) const
+bool AE2GridManager::IsValidGridCoord(const FE2GridCoord& InCoord) const
 {
 	return InCoord.X >= 0 && InCoord.X < GridDimension.X && InCoord.Y >= 0 && InCoord.Y < GridDimension.Y;
 }
@@ -79,22 +79,22 @@ bool AE2GridManager::IsGridMapEmpty()
 	return GridMap.IsEmpty();
 }
 
-const UGridData* AE2GridManager::GetGridData(const int32 InGridKey)
+const UE2GridRuntimeData* AE2GridManager::GetGridData(const int32 InGridKey)
 {
 	return GridMap[InGridKey];
 }
 
-FGridCoord AE2GridManager::GetCoord(const int32 InGridKey)
+FE2GridCoord AE2GridManager::GetCoord(const int32 InGridKey)
 {
 	if (GridMap.Contains(InGridKey))
 	{
 		return GetGridData(InGridKey)->Coord;
 	}
 	
-	return FGridCoord(INVALID_GRID_KEY, INVALID_GRID_KEY);
+	return FE2GridCoord(INVALID_GRID_KEY, INVALID_GRID_KEY);
 }
 
-FVector AE2GridManager::GetWorldPosition(const FVector& InOrigin, const FGridCoord& InCoord)
+FVector AE2GridManager::GetWorldPosition(const FVector& InOrigin, const FE2GridCoord& InCoord)
 {
 	FVector Position = InOrigin + FVector(InCoord.X * GridSize, InCoord.Y * GridSize, InOrigin.Z);
 	return Position;
@@ -113,12 +113,12 @@ void AE2GridManager::Tick(float DeltaTime)
 }
 
 void AE2GridManager::ForEachGridData(
-	TFunctionRef<bool(TObjectPtr<UGridData> InGridData, const FVector& InWorldPosition)> InFunc)
+	TFunctionRef<bool(TObjectPtr<UE2GridRuntimeData> InGridData, const FVector& InWorldPosition)> InFunc)
 {
 	const FVector& Origin = GetActorLocation();
 	for (const auto& Elem: GridMap)
 	{
-		TObjectPtr<UGridData> GridData = Elem.Value;
+		TObjectPtr<UE2GridRuntimeData> GridData = Elem.Value;
 		FVector WorldPos = GetWorldPosition(Origin, GridData->Coord);
 		InFunc(Elem.Value, WorldPos);
 	}
@@ -174,8 +174,8 @@ void AE2GridManager::DrawGridMap(bool bClearOnly /*= false*/)
 		Origin += BaseOffset;
 		for (const auto& Elem: GridMap)
 		{
-			const UGridData* GridData = Elem.Value;
-			const FGridCoord& Coord = GridData->Coord;
+			const UE2GridRuntimeData* GridData = Elem.Value;
+			const FE2GridCoord& Coord = GridData->Coord;
 		
 			FVector WorldPosition = GetWorldPosition(Origin, Coord);
 			DrawDebugCrosshairs(World, WorldPosition, FRotator::ZeroRotator, 10.0f, FColor::Green, true);
