@@ -7,6 +7,7 @@
 #include "Components/InstancedStaticMeshComponent.h"
 #include "E2GridVisualizeComponent.generated.h"
 
+class AE2GridManager;
 
 UCLASS(Blueprintable, BlueprintType)
 class E2GRID_API UGridVisualDataAsset: public UDataAsset
