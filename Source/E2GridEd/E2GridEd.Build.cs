@@ -35,6 +35,7 @@ public class E2GridEd: ModuleRules
 			new string[]
 			{
 				"CoreUObject",
+				"EditorFramework",
 				"Engine",
 				"Slate",
 				"SlateCore",

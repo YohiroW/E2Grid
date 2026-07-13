@@ -1,7 +1,18 @@
 #include "E2GridEdMode.h"
 
+#include "Textures/SlateIcon.h"
+
+#define LOCTEXT_NAMESPACE "E2GridEdMode"
+
+const FEditorModeID UE2GridEdMode::EM_E2GridEdModeId = TEXT("EditMode.E2Grid");
+
 UE2GridEdMode::UE2GridEdMode()
 {
+	Info = FEditorModeInfo(
+		UE2GridEdMode::EM_E2GridEdModeId,
+		LOCTEXT("E2GridEdModeName", "Grid"),
+		FSlateIcon(),
+		true);
 }
 
 UE2GridEdMode::~UE2GridEdMode()
@@ -149,4 +160,6 @@ void UE2GridEdMode::ActivateDefaultTool()
 void UE2GridEdMode::UpdateOnPaletteChange(FName NewPalette)
 {
 }
+
+#undef LOCTEXT_NAMESPACE
 

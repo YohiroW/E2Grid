@@ -1,5 +1,6 @@
 #pragma once
 
+#include "EditorModeManager.h"
 #include "Tools/UEdMode.h"
 #include "Tools/LegacyEdModeInterfaces.h"
 #include "E2GridEdMode.generated.h"
@@ -10,6 +11,8 @@ class UE2GridEdMode: public UEdMode, public ILegacyEdModeViewportInterface
 {
 public:
 	GENERATED_BODY()
+
+	static const FEditorModeID EM_E2GridEdModeId;
 
 	UE2GridEdMode();
 	virtual ~UE2GridEdMode();
