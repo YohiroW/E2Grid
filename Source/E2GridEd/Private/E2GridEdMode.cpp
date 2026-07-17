@@ -1,6 +1,7 @@
 #include "E2GridEdMode.h"
 
 #include "Textures/SlateIcon.h"
+#include "E2GridEdModeToolkit.h"
 
 #define LOCTEXT_NAMESPACE "E2GridEdMode"
 
@@ -104,7 +105,7 @@ void UE2GridEdMode::Exit()
 
 void UE2GridEdMode::CreateToolkit()
 {
-	Super::CreateToolkit();
+	Toolkit = MakeShareable(new FE2GridEdModeToolkit);
 }
 
 void UE2GridEdMode::Tick(FEditorViewportClient* ViewportClient, float DeltaTime)
