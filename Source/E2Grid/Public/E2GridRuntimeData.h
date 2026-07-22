@@ -6,6 +6,16 @@
 // ---------------------------------------------------
 constexpr int32 INVALID_GRID_KEY = -1;
 
+UENUM(meta = (Bitflags, UseEnumValuesAsMaskValuesInEditor = "true"))
+enum class EE2GridFlags: int32
+{
+	NoFlags        = 0,
+	CanWalkThrough = 1 << 1,
+	IsWalkable     = 1 << 2,
+};
+ENUM_CLASS_FLAGS(EE2GridFlags);
+
+
 USTRUCT(BlueprintType)
 struct FE2GridCoord
 {
@@ -37,9 +47,26 @@ class E2GRID_API UE2GridRuntimeData : public UObject
 public:
 	UE2GridRuntimeData()
 	: Coord(0, 0),
-	  GridKey(INVALID_GRID_KEY)
+	  GridKey(INVALID_GRID_KEY),
+	  GridFlags(0)
 	{
 	}
+
+	UFUNCTION(BlueprintCallable)
+	void SetWalkable(const bool bInIsWalkable);
+	
+	UFUNCTION(BlueprintPure)
+	bool IsWalkable() const;
+	
+	UFUNCTION(BlueprintCallable)
+	void SetCanWalkThrough(const bool bInCanWalkThrough);
+	
+	UFUNCTION(BlueprintPure)
+	bool CanWalkThrough() const;	
+	
+protected:
+	bool HasGridFlag(EE2GridFlags Flag) const;
+	void SetGridFlag(EE2GridFlags Flag, const bool bEnabled);
 	
 public:
 	UPROPERTY(BlueprintReadOnly)
@@ -51,4 +78,8 @@ public:
 	
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	bool bIsValid = true;
+	
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, meta= (Bitmask, BitmaskEnum = "/Script/E2Grid.EE2GridFlags"))
+	int32 GridFlags;
 };
+
