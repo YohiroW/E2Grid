@@ -64,7 +64,7 @@ void UE2GridVisualizeComponent::PostLoad()
 	Super::PostLoad();
 		
 	AE2GridManager* GridManager = Cast<AE2GridManager>(GetOwner());
-	if (ensureMsgf(GridManager, TEXT("%s must owned by a AGridManager"), *GetName()))
+	if (!ensureMsgf(GridManager, TEXT("%s must owned by a AGridManager"), *GetName()))
 	{
 		return;
 	}

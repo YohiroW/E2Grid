@@ -10,6 +10,7 @@ AE2GridManager::AE2GridManager()
 	{
 		GridVisualizeComponent = CreateDefaultSubobject<UE2GridVisualizeComponent>(TEXT("GridVisualizeComponent"));
 		GridVisualizeComponent->SetupAttachment(RootComponent);
+		// GridVisualizeComponent->SetVisibility(bShowVisualizedGrid);
 	}
 	
 	GridDataClass = UE2GridRuntimeData::StaticClass();
@@ -32,10 +33,14 @@ void AE2GridManager::Generate()
 
 	const int32 Width = GridDimension.X;
 	const int32 Height = GridDimension.Y;
-	const int32 HalfGridSize = GridSize * 0.5f;
-	
-	BaseOffset = FVector(Width* HalfGridSize - HalfGridSize, Height* HalfGridSize- HalfGridSize, 0.0f);
-	BaseOffset *= -1.0f; 
+	const double HalfGridSize = static_cast<double>(GridSize) * 0.5;
+
+	// Grid coordinates identify cell centers. Offset (0, 0) by half of the
+	// center-to-center span so that the actor origin remains at the grid center.
+	BaseOffset = FVector(
+		-static_cast<double>(Width - 1) * HalfGridSize,
+		-static_cast<double>(Height - 1) * HalfGridSize,
+		0.0);
 	
 	for (int32 Y = 0; Y < Height; ++Y)
 	{
@@ -100,10 +105,25 @@ FVector AE2GridManager::GetWorldPosition(const FVector& InOrigin, const FE2GridC
 	return Position;
 }
 
+FVector AE2GridManager::GetGridLocalPosition(const FE2GridCoord& InCoord) const
+{
+	return BaseOffset + FVector(InCoord.X * GridSize, InCoord.Y * GridSize, 0.0);
+}
+
+FVector AE2GridManager::GetGridWorldPosition(const FE2GridCoord& InCoord) const
+{
+	return GetActorTransform().TransformPosition(GetGridLocalPosition(InCoord));
+}
+
 bool AE2GridManager::GetGridCoord(const FVector& InWorldPos, FE2GridCoord& OutCoord)
 {
-	const FVector Origin = GetActorLocation() + BaseOffset;
-	const FVector LocalPos = InWorldPos - Origin;
+	if (GridSize <= 0)
+	{
+		OutCoord = FE2GridCoord::INVALID_COORD;
+		return false;
+	}
+
+	const FVector LocalPos = GetActorTransform().InverseTransformPosition(InWorldPos) - BaseOffset;
 	const int32 CoordX = FMath::FloorToInt((LocalPos.X + GridSize * 0.5f) / GridSize);
 	const int32 CoordY = FMath::FloorToInt((LocalPos.Y + GridSize * 0.5f) / GridSize);
 	
@@ -129,11 +149,10 @@ void AE2GridManager::Tick(float DeltaTime)
 void AE2GridManager::ForEachGridData(
 	TFunctionRef<bool(TObjectPtr<UE2GridRuntimeData> InGridData, const FVector& InWorldPosition)> InFunc)
 {
-	const FVector& Origin = GetActorLocation();
 	for (const auto& Elem: GridMap)
 	{
 		TObjectPtr<UE2GridRuntimeData> GridData = Elem.Value;
-		FVector WorldPos = GetWorldPosition(Origin, GridData->Coord);
+		const FVector WorldPos = GetGridWorldPosition(GridData->Coord);
 		InFunc(Elem.Value, WorldPos);
 	}
 }
@@ -184,16 +203,21 @@ void AE2GridManager::DrawGridMap(bool bClearOnly /*= false*/)
 	
 	if (!bClearOnly)
 	{
-		FVector Origin = GetActorLocation();
-		Origin += BaseOffset;
+		const FQuat GridRotation = GetActorQuat();
+		const FVector GridScale = GetActorScale3D().GetAbs();
+		const FVector BoxExtent(
+			GridSize * 0.5 * GridScale.X,
+			GridSize * 0.5 * GridScale.Y,
+			GridScale.Z);
+
 		for (const auto& Elem: GridMap)
 		{
 			const UE2GridRuntimeData* GridData = Elem.Value;
 			const FE2GridCoord& Coord = GridData->Coord;
 		
-			FVector WorldPosition = GetWorldPosition(Origin, Coord);
-			DrawDebugCrosshairs(World, WorldPosition, FRotator::ZeroRotator, 10.0f, FColor::Green, true);
-			DrawDebugBox(World, WorldPosition, FVector(GridSize * 0.5f, GridSize * 0.5f, 1.0f), FColor::Green, true);
+			const FVector WorldPosition = GetGridWorldPosition(Coord);
+			DrawDebugCrosshairs(World, WorldPosition, GridRotation.Rotator(), 10.0f, FColor::Green, true);
+			DrawDebugBox(World, WorldPosition, BoxExtent, GridRotation, FColor::Green, true);
 		}
 	}
 }

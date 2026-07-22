@@ -50,6 +50,14 @@ public:
 	
 	UFUNCTION(BlueprintCallable)
 	FVector GetWorldPosition(const FVector& InOrigin, const FE2GridCoord& InCoord);
+
+	/** Returns the center of a grid cell in the grid manager's local space. */
+	UFUNCTION(BlueprintPure)
+	FVector GetGridLocalPosition(const FE2GridCoord& InCoord) const;
+
+	/** Returns the center of a grid cell in world space, including the actor transform. */
+	UFUNCTION(BlueprintPure)
+	FVector GetGridWorldPosition(const FE2GridCoord& InCoord) const;
 	
 	UFUNCTION(BlueprintCallable)
 	bool GetGridCoord(const FVector& InWorldPos, FE2GridCoord& OutCoord);
@@ -100,6 +108,9 @@ public:
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	TObjectPtr<UE2GridMapAsset> GridDataAsset;
+	
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	bool bShowVisualizedGrid = false;
 	
 	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<UE2GridVisualizeComponent> GridVisualizeComponent; 
