@@ -91,13 +91,27 @@ FE2GridCoord AE2GridManager::GetCoord(const int32 InGridKey)
 		return GetGridData(InGridKey)->Coord;
 	}
 	
-	return FE2GridCoord(INVALID_GRID_KEY, INVALID_GRID_KEY);
+	return FE2GridCoord::INVALID_COORD;
 }
 
 FVector AE2GridManager::GetWorldPosition(const FVector& InOrigin, const FE2GridCoord& InCoord)
 {
-	FVector Position = InOrigin + FVector(InCoord.X * GridSize, InCoord.Y * GridSize, InOrigin.Z);
+	FVector Position = InOrigin + FVector(InCoord.X * GridSize, InCoord.Y * GridSize, 0.0f);
 	return Position;
+}
+
+bool AE2GridManager::GetGridCoord(const FVector& InWorldPos, FE2GridCoord& OutCoord)
+{
+	const FVector Origin = GetActorLocation() + BaseOffset;
+	const FVector LocalPos = InWorldPos - Origin;
+	const int32 CoordX = FMath::FloorToInt((LocalPos.X + GridSize * 0.5f) / GridSize);
+	const int32 CoordY = FMath::FloorToInt((LocalPos.Y + GridSize * 0.5f) / GridSize);
+	
+	OutCoord.X = CoordX;
+	OutCoord.Y = CoordY;
+	OutCoord.Layer = 0;
+	
+	return IsValidGridCoord(OutCoord);
 }
 
 // Called when the game starts or when spawned

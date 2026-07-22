@@ -35,8 +35,10 @@ public class E2GridEd: ModuleRules
 			new string[]
 			{
 				"CoreUObject",
+				"E2Grid",
 				"EditorFramework",
 				"Engine",
+				"PropertyEditor",
 				"Slate",
 				"SlateCore",
 				"UnrealEd",

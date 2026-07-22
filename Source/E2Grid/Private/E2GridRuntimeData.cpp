@@ -1,5 +1,7 @@
 #include "E2GridRuntimeData.h"
 
+const FE2GridCoord FE2GridCoord::INVALID_COORD(INVALID_GRID_KEY, INVALID_GRID_KEY,INVALID_GRID_KEY);
+
 bool UE2GridRuntimeData::HasGridFlag(EE2GridFlags Flag) const
 {
 	return (GridFlags & static_cast<int32>(Flag)) != 0;

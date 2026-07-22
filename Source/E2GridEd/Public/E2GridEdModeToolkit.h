@@ -19,11 +19,16 @@ public:
 	virtual FEdMode* GetEditorMode() const override;
 	virtual TSharedPtr<SWidget> GetInlineContent() const override;
 
-	// /** Mode Toolbar Palettes **/
-	// virtual void GetToolPaletteNames(TArray<FName>& InPaletteName) const;
-	// virtual FText GetToolPaletteDisplayName(FName PaletteName) const; 
-	// virtual void BuildToolPalette(FName PaletteName, class FToolBarBuilder& ToolbarBuilder);
-	// virtual void OnToolPaletteChanged(FName PaletteName) override;
+	/** Mode Toolbar Palettes **/
+	virtual void GetToolPaletteNames(TArray<FName>& InPaletteName) const override;
+	virtual FText GetToolPaletteDisplayName(FName PaletteName) const override;
+	virtual TSharedRef<SWidget> CreatePaletteWidget(
+		TSharedPtr<FUICommandList> InCommandList,
+		FName InToolbarCustomizationName,
+		FName InPaletteName) override;
+	virtual void OnToolPaletteChanged(FName PaletteName) override;
+
+	void RefreshCreateSettings();
 
 	/** Modes Panel Header Information **/
 	virtual FText GetActiveToolDisplayName() const;
@@ -46,6 +51,8 @@ protected:
 
 private:
 	TSharedPtr<SWidget> InlineContent;
+	TSharedPtr<class SWidgetSwitcher> PageSwitcher;
+	TSharedPtr<class SE2GridCreatePanel> CreatePage;
 	
 	TWeakPtr<SDockTab> InspectedObjectsTab;
 	FMinorTabConfig InspectedObjectsTabInfo;

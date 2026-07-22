@@ -51,6 +51,9 @@ public:
 	UFUNCTION(BlueprintCallable)
 	FVector GetWorldPosition(const FVector& InOrigin, const FE2GridCoord& InCoord);
 	
+	UFUNCTION(BlueprintCallable)
+	bool GetGridCoord(const FVector& InWorldPos, FE2GridCoord& OutCoord);
+	
 #if WITH_EDITOR
 	UFUNCTION(BlueprintCallable)
 	void DrawGridMap(bool bClearOnly = false);

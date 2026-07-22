@@ -21,14 +21,9 @@ struct FE2GridCoord
 {
 	GENERATED_BODY()
 	
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
-	int32 X;
-	
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
-	int32 Y;
-	
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
-	int32 Layer = 0;	// Reserved not in used right now
+	static E2GRID_API const FE2GridCoord INVALID_COORD;
+
+	// --------------------------------------------
 	
 	FE2GridCoord operator += (const FE2GridCoord& Other)
 	{
@@ -37,6 +32,17 @@ struct FE2GridCoord
 		Layer += Other.Layer;
 		return *this;
 	}
+
+	// --------------------------------------------
+	
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	int32 X;
+	
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	int32 Y;
+	
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	int32 Layer = 0;	// Reserved not in used right now
 };
 
 UCLASS(Blueprintable, BlueprintType)
