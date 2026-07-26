@@ -1,7 +1,9 @@
 #include "E2GridEdModeToolkit.h"
 #include "E2GridEdMode.h"
-#include "SE2GridEdModePages.h"
 #include "EditorModeManager.h"
+#include "Widgets/SE2GridBakeView.h"
+#include "Widgets/SE2GridDebugView.h"
+#include "Widgets/SE2GridManagerView.h"
 #include "Widgets/Layout/SWidgetSwitcher.h"
 #include "Widgets/SNullWidget.h"
 
@@ -9,16 +11,14 @@
 
 namespace E2GridEdModePalettes
 {
-	const FName Create(TEXT("Create"));
-	const FName Edit(TEXT("Edit"));
+	const FName Grid(TEXT("Grid"));
 	const FName Bake(TEXT("Bake"));
 	const FName Debug(TEXT("Debug"));
 }
 
 const TArray<FName> FE2GridEdModeToolkit::PaletteNames =
 {
-	E2GridEdModePalettes::Create,
-	E2GridEdModePalettes::Edit,
+	E2GridEdModePalettes::Grid,
 	E2GridEdModePalettes::Bake,
 	E2GridEdModePalettes::Debug
 };
@@ -30,24 +30,20 @@ void FE2GridEdModeToolkit::Init(const TSharedPtr<IToolkitHost>& InitToolkitHost,
 	InlineContent = SAssignNew(PageSwitcher, SWidgetSwitcher)
 		+ SWidgetSwitcher::Slot()
 		[
-			SAssignNew(CreatePage, SE2GridCreatePanel)
+			SAssignNew(GridView, SE2GridManagerView)
 			.EditorMode(E2GridEdMode)
 		]
 		+ SWidgetSwitcher::Slot()
 		[
-			SNew(SE2GridEditPanel)
+			SNew(SE2GridBakeView)
 		]
 		+ SWidgetSwitcher::Slot()
 		[
-			SNew(SE2GridBakePanel)
-		]
-		+ SWidgetSwitcher::Slot()
-		[
-			SNew(SE2GridDebugPanel)
+			SNew(SE2GridDebugView)
 		];
 
 	FModeToolkit::Init(InitToolkitHost, InOwningMode);
-	SetCurrentPalette(E2GridEdModePalettes::Create);
+	SetCurrentPalette(E2GridEdModePalettes::Grid);
 }
 
 FName FE2GridEdModeToolkit::GetToolkitFName() const
@@ -77,13 +73,9 @@ void FE2GridEdModeToolkit::GetToolPaletteNames(TArray<FName>& InPaletteName) con
 
 FText FE2GridEdModeToolkit::GetToolPaletteDisplayName(FName PaletteName) const
 {
-	if (PaletteName == E2GridEdModePalettes::Create)
+	if (PaletteName == E2GridEdModePalettes::Grid)
 	{
-		return LOCTEXT("Palette.Create", "Create");
-	}
-	if (PaletteName == E2GridEdModePalettes::Edit)
-	{
-		return LOCTEXT("Palette.Edit", "Edit");
+		return LOCTEXT("Palette.Grid", "Grid");
 	}
 	if (PaletteName == E2GridEdModePalettes::Bake)
 	{
@@ -124,11 +116,11 @@ void FE2GridEdModeToolkit::OnToolPaletteChanged(FName PaletteName)
 	}
 }
 
-void FE2GridEdModeToolkit::RefreshCreateSettings()
+void FE2GridEdModeToolkit::RefreshSettings()
 {
-	if (CreatePage.IsValid())
+	if (GridView.IsValid())
 	{
-		CreatePage->RefreshSettings();
+		GridView->RefreshSettings();
 	}
 }
 

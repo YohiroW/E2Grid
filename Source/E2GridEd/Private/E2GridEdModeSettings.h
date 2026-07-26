@@ -2,19 +2,23 @@
 
 #include "CoreMinimal.h"
 #include "UObject/Object.h"
-#include "E2GridCreateSettings.generated.h"
+#include "E2GridEdModeSettings.generated.h"
 
 class UE2GridRuntimeData;
+class AE2GridManager;
 
 UCLASS(Transient)
-class UE2GridCreateSettings : public UObject
+class UE2GridEdModeSettings : public UObject
 {
 	GENERATED_BODY()
 
 public:
-	UE2GridCreateSettings();
+	UE2GridEdModeSettings();
 
 	void ResetToDefaults();
+	void LoadFromGridManager(const AE2GridManager& InGridManager);
+	bool MatchesGridManager(const AE2GridManager& InGridManager) const;
+	bool IsValid() const;
 
 	UPROPERTY(EditAnywhere, Category = "Transform")
 	FVector Location = FVector::ZeroVector;

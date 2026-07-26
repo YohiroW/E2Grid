@@ -28,7 +28,7 @@ public:
 		FName InPaletteName) override;
 	virtual void OnToolPaletteChanged(FName PaletteName) override;
 
-	void RefreshCreateSettings();
+	void RefreshSettings();
 
 	/** Modes Panel Header Information **/
 	virtual FText GetActiveToolDisplayName() const;
@@ -52,7 +52,7 @@ protected:
 private:
 	TSharedPtr<SWidget> InlineContent;
 	TSharedPtr<class SWidgetSwitcher> PageSwitcher;
-	TSharedPtr<class SE2GridCreatePanel> CreatePage;
+	TSharedPtr<class SE2GridManagerView> GridView;
 	
 	TWeakPtr<SDockTab> InspectedObjectsTab;
 	FMinorTabConfig InspectedObjectsTabInfo;

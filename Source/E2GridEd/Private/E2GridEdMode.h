@@ -4,12 +4,13 @@
 #include "Tools/LegacyEdModeWidgetHelpers.h"
 #include "E2GridEdMode.generated.h"
 
-class UE2GridCreateSettings;
+class UE2GridEdModeSettings;
+class AE2GridManager;
+class AActor;
 
 enum class EE2GridEdModePage : uint8
 {
-	Create,
-	Edit,
+	Grid,
 	Bake,
 	Debug
 };
@@ -43,11 +44,18 @@ public:
 	virtual bool GetCustomInputCoordinateSystem(FMatrix& InMatrix, void* InData) override;
 	virtual TMap<FName, TArray<TSharedPtr<FUICommandInfo>>> GetModeCommands() const override;
 
-	UE2GridCreateSettings* GetCreateSettings() const { return CreateSettings; }
+	UE2GridEdModeSettings* GetSettings() const { return Settings; }
+	const TArray<TWeakObjectPtr<AE2GridManager>>& GetGridManagers() const { return GridManagers; }
+	AE2GridManager* GetActiveGridManager() const { return ActiveGridManager.Get(); }
+	bool IsCreatingGridManager() const { return !ActiveGridManager.IsValid(); }
 	void SetActivePage(EE2GridEdModePage InPage);
-	void NotifyCreateSettingsChanged(bool bRefreshDetails);
-	bool CanCreateGridManager() const;
-	void CreateGridManager();
+	void NotifySettingsChanged(bool bRefreshDetails);
+	void RefreshGridManagers();
+	void SetActiveGridManager(AE2GridManager* InGridManager);
+	bool HasPendingSettings() const;
+	bool CanCommitSettings() const;
+	bool CommitSettings();
+	void RevertSettings();
 
 protected:
 	/** Binds UI commands to actions for the mesh paint mode */
@@ -63,7 +71,9 @@ protected:
 	virtual void UpdateOnPaletteChange(FName NewPalette);
 	// end UEdMode Interface
 
-	bool IsCreatePageActive() const;
+	bool IsGridPageActive() const;
+	void HandleLevelActorAdded(AActor* InActor);
+	void HandleLevelActorDeleted(AActor* InActor);
 
 	// Start command bindings
 
@@ -71,10 +81,17 @@ protected:
 
 protected:
 	UPROPERTY(Transient)
-	TObjectPtr<UE2GridCreateSettings> CreateSettings;
+	TObjectPtr<UE2GridEdModeSettings> Settings;
 
-	EE2GridEdModePage ActivePage = EE2GridEdModePage::Create;
+	TArray<TWeakObjectPtr<AE2GridManager>> GridManagers;
+
+	TWeakObjectPtr<AE2GridManager> ActiveGridManager;
+
+	EE2GridEdModePage ActivePage = EE2GridEdModePage::Grid;
+	bool bSettingsDirty = false;
 
 	FDelegateHandle PaletteChangedHandle;
 	FConsoleVariableSinkHandle CVarDelegateHandle;
+	FDelegateHandle LevelActorAddedHandle;
+	FDelegateHandle LevelActorDeletedHandle;
 };

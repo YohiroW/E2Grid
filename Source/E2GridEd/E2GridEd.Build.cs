@@ -38,6 +38,7 @@ public class E2GridEd: ModuleRules
 				"E2Grid",
 				"EditorFramework",
 				"Engine",
+				"InputCore",
 				"PropertyEditor",
 				"Slate",
 				"SlateCore",

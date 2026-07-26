@@ -1,12 +1,15 @@
 #include "E2GridEdMode.h"
 
-#include "E2GridCreateSettings.h"
+#include "E2GridEdModeSettings.h"
 #include "E2GridEdModeToolkit.h"
 #include "E2GridManager.h"
+#include "Components/SceneComponent.h"
 #include "Editor.h"
 #include "EditorViewportClient.h"
+#include "Engine/Engine.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "Math/RotationMatrix.h"
 #include "PrimitiveDrawInterface.h"
 #include "ScopedTransaction.h"
@@ -34,19 +37,27 @@ UE2GridEdMode::~UE2GridEdMode()
 void UE2GridEdMode::Initialize()
 {
 	Super::Initialize();
-	CreateSettings = NewObject<UE2GridCreateSettings>(this);
+	Settings = NewObject<UE2GridEdModeSettings>(this);
 }
 
 void UE2GridEdMode::Enter()
 {
-	if (!CreateSettings)
+	if (!Settings)
 	{
-		CreateSettings = NewObject<UE2GridCreateSettings>(this);
+		Settings = NewObject<UE2GridEdModeSettings>(this);
 	}
-	CreateSettings->ResetToDefaults();
-	ActivePage = EE2GridEdModePage::Create;
+	Settings->ResetToDefaults();
+	bSettingsDirty = false;
+	ActivePage = EE2GridEdModePage::Grid;
 
 	Super::Enter();
+
+	if (GEngine)
+	{
+		LevelActorAddedHandle = GEngine->OnLevelActorAdded().AddUObject(this, &UE2GridEdMode::HandleLevelActorAdded);
+		LevelActorDeletedHandle = GEngine->OnLevelActorDeleted().AddUObject(this, &UE2GridEdMode::HandleLevelActorDeleted);
+	}
+	RefreshGridManagers();
 
 	// GEditor->OnEditorClose().AddUObject(this, &UMeshPaintMode::OnResetViewMode);
 	// FCoreUObjectDelegates::OnObjectsReplaced.AddUObject(this, &UMeshPaintMode::OnObjectsReplaced);
@@ -97,6 +108,17 @@ void UE2GridEdMode::Enter()
 
 void UE2GridEdMode::Exit()
 {
+	if (GEngine)
+	{
+		GEngine->OnLevelActorAdded().Remove(LevelActorAddedHandle);
+		GEngine->OnLevelActorDeleted().Remove(LevelActorDeletedHandle);
+	}
+	LevelActorAddedHandle.Reset();
+	LevelActorDeletedHandle.Reset();
+	GridManagers.Reset();
+	ActiveGridManager.Reset();
+	bSettingsDirty = false;
+
 	// ModeSettings->DefaultPalette = Toolkit->GetCurrentPalette();
 	//
 	// Toolkit->OnPaletteChanged().Remove(PaletteChangedHandle);
@@ -141,18 +163,17 @@ void UE2GridEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimiti
 {
 	Super::Render(View, Viewport, PDI);
 
-	if (!IsCreatePageActive() || !CreateSettings || CreateSettings->GridDimension.X <= 0 ||
-		CreateSettings->GridDimension.Y <= 0 || CreateSettings->GridSize <= 0)
+	if (!IsGridPageActive() || !IsCreatingGridManager() || !Settings || !Settings->IsValid())
 	{
 		return;
 	}
 
-	const int32 Width = CreateSettings->GridDimension.X;
-	const int32 Height = CreateSettings->GridDimension.Y;
-	const double GridSize = static_cast<double>(CreateSettings->GridSize);
+	const int32 Width = Settings->GridDimension.X;
+	const int32 Height = Settings->GridDimension.Y;
+	const double GridSize = static_cast<double>(Settings->GridSize);
 	const double HalfWidth = static_cast<double>(Width) * GridSize * 0.5;
 	const double HalfHeight = static_cast<double>(Height) * GridSize * 0.5;
-	const FTransform PreviewTransform(CreateSettings->Rotation, CreateSettings->Location);
+	const FTransform PreviewTransform(Settings->Rotation, Settings->Location);
 	const FLinearColor InnerLineColor(0.05f, 0.65f, 0.10f);
 	const FLinearColor BorderLineColor(0.10f, 1.00f, 0.20f);
 
@@ -182,13 +203,14 @@ bool UE2GridEdMode::InputDelta(
 	FRotator& InRot,
 	FVector& InScale)
 {
-	if (IsCreatePageActive() && CreateSettings && InViewportClient->GetCurrentWidgetAxis() != EAxisList::None &&
+	if (IsGridPageActive() && IsCreatingGridManager() && Settings &&
+		InViewportClient->GetCurrentWidgetAxis() != EAxisList::None &&
 		(!InDrag.IsNearlyZero() || !InRot.IsNearlyZero()))
 	{
-		CreateSettings->Location += InDrag;
-		CreateSettings->Rotation += InRot;
-		CreateSettings->Rotation.Normalize();
-		NotifyCreateSettingsChanged(true);
+		Settings->Location += InDrag;
+		Settings->Rotation += InRot;
+		Settings->Rotation.Normalize();
+		NotifySettingsChanged(true);
 		return true;
 	}
 
@@ -202,17 +224,18 @@ bool UE2GridEdMode::HandleClick(FEditorViewportClient* InViewportClient, HHitPro
 
 bool UE2GridEdMode::ShouldDrawWidget() const
 {
-	return IsCreatePageActive();
+	return IsGridPageActive() && IsCreatingGridManager();
 }
 
 bool UE2GridEdMode::UsesTransformWidget() const
 {
-	return IsCreatePageActive();
+	return IsGridPageActive() && IsCreatingGridManager();
 }
 
 bool UE2GridEdMode::UsesTransformWidget(UE::Widget::EWidgetMode CheckMode) const
 {
-	return IsCreatePageActive() && (CheckMode == UE::Widget::WM_Translate || CheckMode == UE::Widget::WM_Rotate);
+	return IsGridPageActive() && IsCreatingGridManager() &&
+		(CheckMode == UE::Widget::WM_Translate || CheckMode == UE::Widget::WM_Rotate);
 }
 
 bool UE2GridEdMode::UsesPropertyWidgets() const
@@ -222,7 +245,7 @@ bool UE2GridEdMode::UsesPropertyWidgets() const
 
 EAxisList::Type UE2GridEdMode::GetWidgetAxisToDraw(UE::Widget::EWidgetMode InWidgetMode) const
 {
-	if (!IsCreatePageActive())
+	if (!IsGridPageActive() || !IsCreatingGridManager())
 	{
 		return EAxisList::None;
 	}
@@ -240,17 +263,17 @@ EAxisList::Type UE2GridEdMode::GetWidgetAxisToDraw(UE::Widget::EWidgetMode InWid
 
 FVector UE2GridEdMode::GetWidgetLocation() const
 {
-	return CreateSettings ? CreateSettings->Location : FVector::ZeroVector;
+	return Settings ? Settings->Location : FVector::ZeroVector;
 }
 
 bool UE2GridEdMode::GetCustomDrawingCoordinateSystem(FMatrix& InMatrix, void* InData)
 {
-	if (!IsCreatePageActive() || !CreateSettings)
+	if (!IsGridPageActive() || !IsCreatingGridManager() || !Settings)
 	{
 		return false;
 	}
 
-	InMatrix = FRotationMatrix(CreateSettings->Rotation);
+	InMatrix = FRotationMatrix(Settings->Rotation);
 	return true;
 }
 
@@ -282,6 +305,20 @@ void UE2GridEdMode::OnToolEnded(UInteractiveToolManager* Manager, UInteractiveTo
 void UE2GridEdMode::ActorSelectionChangeNotify()
 {
 	Super::ActorSelectionChangeNotify();
+
+	if (bSettingsDirty)
+	{
+		return;
+	}
+
+	for (const TWeakObjectPtr<AE2GridManager>& GridManager : GridManagers)
+	{
+		if (GridManager.IsValid() && GridManager->IsSelected())
+		{
+			SetActiveGridManager(GridManager.Get());
+			break;
+		}
+	}
 }
 
 void UE2GridEdMode::ElementSelectionChangeNotify()
@@ -292,6 +329,11 @@ void UE2GridEdMode::ElementSelectionChangeNotify()
 void UE2GridEdMode::ActorPropChangeNotify()
 {
 	Super::ActorPropChangeNotify();
+
+	if (!bSettingsDirty && ActiveGridManager.IsValid())
+	{
+		RevertSettings();
+	}
 }
 
 void UE2GridEdMode::ActivateDefaultTool()
@@ -308,15 +350,21 @@ void UE2GridEdMode::SetActivePage(EE2GridEdModePage InPage)
 	if (ActivePage != InPage)
 	{
 		ActivePage = InPage;
-		NotifyCreateSettingsChanged(false);
+		if (GEditor)
+		{
+			GEditor->RedrawAllViewports(false);
+		}
 	}
 }
 
-void UE2GridEdMode::NotifyCreateSettingsChanged(bool bRefreshDetails)
+void UE2GridEdMode::NotifySettingsChanged(bool bRefreshDetails)
 {
+	bSettingsDirty = IsCreatingGridManager() || (Settings &&
+		!Settings->MatchesGridManager(*ActiveGridManager));
+
 	if (bRefreshDetails && Toolkit.IsValid())
 	{
-		StaticCastSharedPtr<FE2GridEdModeToolkit>(Toolkit)->RefreshCreateSettings();
+		StaticCastSharedPtr<FE2GridEdModeToolkit>(Toolkit)->RefreshSettings();
 	}
 
 	if (GEditor)
@@ -325,53 +373,275 @@ void UE2GridEdMode::NotifyCreateSettingsChanged(bool bRefreshDetails)
 	}
 }
 
-bool UE2GridEdMode::CanCreateGridManager() const
+void UE2GridEdMode::RefreshGridManagers()
 {
+	const bool bKeepCreateDraft = IsCreatingGridManager() && bSettingsDirty;
+	AE2GridManager* PreviousGridManager = ActiveGridManager.Get();
+	GridManagers.Reset();
+
+	if (UWorld* World = GetWorld())
+	{
+		for (TActorIterator<AE2GridManager> It(World); It; ++It)
+		{
+			AE2GridManager* GridManager = *It;
+			if (IsValid(GridManager) && !GridManager->IsActorBeingDestroyed())
+			{
+				GridManagers.Add(GridManager);
+			}
+		}
+	}
+
+	GridManagers.Sort([](
+		const TWeakObjectPtr<AE2GridManager>& Left,
+		const TWeakObjectPtr<AE2GridManager>& Right)
+	{
+		const AE2GridManager* LeftManager = Left.Get();
+		const AE2GridManager* RightManager = Right.Get();
+		return LeftManager && RightManager
+			? LeftManager->GetActorLabel() < RightManager->GetActorLabel()
+			: LeftManager != nullptr;
+	});
+
+	const bool bPreviousManagerStillExists = PreviousGridManager && GridManagers.ContainsByPredicate(
+		[PreviousGridManager](const TWeakObjectPtr<AE2GridManager>& GridManager)
+		{
+			return GridManager.Get() == PreviousGridManager;
+		});
+
+	AE2GridManager* NewGridManager = bPreviousManagerStillExists ? PreviousGridManager : nullptr;
+	if (!NewGridManager && !bKeepCreateDraft)
+	{
+		for (const TWeakObjectPtr<AE2GridManager>& GridManager : GridManagers)
+		{
+			if (GridManager.IsValid() && GridManager->IsSelected())
+			{
+				NewGridManager = GridManager.Get();
+				break;
+			}
+		}
+	}
+	if (!NewGridManager && !bKeepCreateDraft && GridManagers.Num() == 1)
+	{
+		NewGridManager = GridManagers[0].Get();
+	}
+
+	const bool bTargetChanged = ActiveGridManager.Get() != NewGridManager;
+	ActiveGridManager = NewGridManager;
+	if (Settings && (bTargetChanged || !bSettingsDirty))
+	{
+		if (NewGridManager)
+		{
+			Settings->LoadFromGridManager(*NewGridManager);
+		}
+		else
+		{
+			Settings->ResetToDefaults();
+		}
+		bSettingsDirty = false;
+	}
+
+	if (Toolkit.IsValid())
+	{
+		StaticCastSharedPtr<FE2GridEdModeToolkit>(Toolkit)->RefreshSettings();
+	}
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports(false);
+	}
+}
+
+void UE2GridEdMode::SetActiveGridManager(AE2GridManager* InGridManager)
+{
+	if (InGridManager && InGridManager->GetWorld() != GetWorld())
+	{
+		return;
+	}
+	if (ActiveGridManager.Get() == InGridManager)
+	{
+		return;
+	}
+
+	ActiveGridManager = InGridManager;
+	bSettingsDirty = false;
+	if (Settings)
+	{
+		if (InGridManager)
+		{
+			Settings->LoadFromGridManager(*InGridManager);
+		}
+		else
+		{
+			Settings->ResetToDefaults();
+		}
+	}
+
+	if (Toolkit.IsValid())
+	{
+		StaticCastSharedPtr<FE2GridEdModeToolkit>(Toolkit)->RefreshSettings();
+	}
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports(false);
+	}
+}
+
+bool UE2GridEdMode::HasPendingSettings() const
+{
+	return bSettingsDirty && Settings && (IsCreatingGridManager() ||
+		!Settings->MatchesGridManager(*ActiveGridManager));
+}
+
+bool UE2GridEdMode::CanCommitSettings() const
+{
+	if (!GEditor || !Settings || !Settings->IsValid())
+	{
+		return false;
+	}
+
+	if (!IsCreatingGridManager())
+	{
+		return HasPendingSettings();
+	}
+
 	const UWorld* World = GetWorld();
-	return GEditor && CreateSettings && World && World->GetCurrentLevel() &&
-		CreateSettings->GridDimension.X > 0 && CreateSettings->GridDimension.Y > 0 && CreateSettings->GridSize > 0;
+	return World && World->GetCurrentLevel();
 }
 
-void UE2GridEdMode::CreateGridManager()
+bool UE2GridEdMode::CommitSettings()
 {
-	if (!CanCreateGridManager())
+	if (!CanCommitSettings())
 	{
-		return;
+		return false;
 	}
 
-	UWorld* World = GetWorld();
-	ULevel* CurrentLevel = World->GetCurrentLevel();
-	const FTransform SpawnTransform(CreateSettings->Rotation, CreateSettings->Location);
-	FScopedTransaction Transaction(LOCTEXT("CreateGridManagerTransaction", "Create E2 Grid Manager"));
-
-	AE2GridManager* GridManager = Cast<AE2GridManager>(GEditor->AddActor(
-		CurrentLevel,
-		AE2GridManager::StaticClass(),
-		SpawnTransform,
-		false,
-		RF_Transactional,
-		false));
-	if (!GridManager)
+	if (IsCreatingGridManager())
 	{
-		Transaction.Cancel();
-		return;
+		UWorld* World = GetWorld();
+		const FTransform SpawnTransform(Settings->Rotation, Settings->Location);
+		const FIntPoint GridDimension = Settings->GridDimension;
+		const int32 GridSize = Settings->GridSize;
+		const TSubclassOf<UE2GridRuntimeData> GridDataClass = Settings->GridDataClass;
+		FScopedTransaction Transaction(LOCTEXT("CreateGridManagerTransaction", "Create E2 Grid Manager"));
+
+		AE2GridManager* GridManager = Cast<AE2GridManager>(GEditor->AddActor(
+			World->GetCurrentLevel(),
+			AE2GridManager::StaticClass(),
+			SpawnTransform,
+			false,
+			RF_Transactional,
+			false));
+		if (!GridManager)
+		{
+			Transaction.Cancel();
+			return false;
+		}
+
+		GridManager->Modify();
+		GridManager->GridDimension = GridDimension;
+		GridManager->GridSize = GridSize;
+		GridManager->GridDataClass = GridDataClass;
+		GridManager->Generate();
+		GridManager->MarkPackageDirty();
+
+		GEditor->SelectNone(false, true, false);
+		GEditor->SelectActor(GridManager, true, true, true);
+		bSettingsDirty = false;
+		RefreshGridManagers();
+		SetActiveGridManager(GridManager);
+		GEditor->RedrawAllViewports();
+		return true;
 	}
 
+	AE2GridManager* GridManager = ActiveGridManager.Get();
+	const bool bTransformChanged = !Settings->Location.Equals(GridManager->GetActorLocation()) ||
+		!Settings->Rotation.Equals(GridManager->GetActorRotation());
+	const bool bGridChanged = Settings->GridDimension != GridManager->GridDimension ||
+		Settings->GridSize != GridManager->GridSize ||
+		Settings->GridDataClass != GridManager->GridDataClass;
+
+	FScopedTransaction Transaction(LOCTEXT("ApplyGridManagerSettingsTransaction", "Apply E2 Grid Manager Settings"));
 	GridManager->Modify();
-	GridManager->GridDimension = CreateSettings->GridDimension;
-	GridManager->GridSize = CreateSettings->GridSize;
-	GridManager->GridDataClass = CreateSettings->GridDataClass;
-	GridManager->Generate();
-	GridManager->MarkPackageDirty();
+	if (USceneComponent* RootComponent = GridManager->GetRootComponent())
+	{
+		RootComponent->Modify();
+	}
 
-	GEditor->SelectNone(false, true, false);
-	GEditor->SelectActor(GridManager, true, true, true);
-	GEditor->RedrawAllViewports();
+	if (bTransformChanged)
+	{
+		const FTransform NewTransform(
+			Settings->Rotation,
+			Settings->Location,
+			GridManager->GetActorScale3D());
+		GridManager->SetActorTransform(NewTransform, false, nullptr, ETeleportType::TeleportPhysics);
+	}
+
+	GridManager->GridDimension = Settings->GridDimension;
+	GridManager->GridSize = Settings->GridSize;
+	GridManager->GridDataClass = Settings->GridDataClass;
+	if (bGridChanged)
+	{
+		GridManager->Generate();
+	}
+
+	GridManager->MarkPackageDirty();
+	Settings->LoadFromGridManager(*GridManager);
+	bSettingsDirty = false;
+
+	if (Toolkit.IsValid())
+	{
+		StaticCastSharedPtr<FE2GridEdModeToolkit>(Toolkit)->RefreshSettings();
+	}
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports();
+	}
+	return true;
 }
 
-bool UE2GridEdMode::IsCreatePageActive() const
+void UE2GridEdMode::RevertSettings()
 {
-	return ActivePage == EE2GridEdModePage::Create;
+	if (Settings)
+	{
+		if (ActiveGridManager.IsValid())
+		{
+			Settings->LoadFromGridManager(*ActiveGridManager);
+		}
+		else
+		{
+			Settings->ResetToDefaults();
+		}
+		bSettingsDirty = false;
+	}
+
+	if (Toolkit.IsValid())
+	{
+		StaticCastSharedPtr<FE2GridEdModeToolkit>(Toolkit)->RefreshSettings();
+	}
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports(false);
+	}
+}
+
+bool UE2GridEdMode::IsGridPageActive() const
+{
+	return ActivePage == EE2GridEdModePage::Grid;
+}
+
+void UE2GridEdMode::HandleLevelActorAdded(AActor* InActor)
+{
+	if (InActor && InActor->GetWorld() == GetWorld() && InActor->IsA<AE2GridManager>())
+	{
+		RefreshGridManagers();
+	}
+}
+
+void UE2GridEdMode::HandleLevelActorDeleted(AActor* InActor)
+{
+	if (InActor && InActor->GetWorld() == GetWorld() && InActor->IsA<AE2GridManager>())
+	{
+		RefreshGridManagers();
+	}
 }
 
 #undef LOCTEXT_NAMESPACE
