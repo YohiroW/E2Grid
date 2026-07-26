@@ -17,5 +17,5 @@ class E2GRID_API UE2GridMapAsset : public UDataAsset
 
 public:
 	UPROPERTY(BlueprintReadonly)
-	TMap<int32, TObjectPtr<UE2GridRuntimeData>> GridDataMap; 
+	TArray<FE2GridRuntimeData> GridData;
 };

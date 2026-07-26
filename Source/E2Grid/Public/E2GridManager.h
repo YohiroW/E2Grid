@@ -36,7 +36,7 @@ public:
 	bool IsGridMapEmpty();
 	
 	UFUNCTION(BlueprintCallable)
-	const UE2GridRuntimeData* GetGridData(const int32 InGridKey);
+	FE2GridRuntimeData GetGridData(const int32 InGridKey) const;
 	
 	// TODO: Move to grid coordinates utils
 	UFUNCTION(BlueprintCallable)
@@ -78,7 +78,7 @@ public:
 	virtual void Tick(float DeltaTime) override;
 	
 	// TODO: change grid map to independent data assets.
-	void ForEachGridData(TFunctionRef<bool(TObjectPtr<UE2GridRuntimeData> InGridData, const FVector& InWorldPosition)> InFunc);
+	void ForEachGridData(TFunctionRef<bool(const FE2GridRuntimeData& InGridData, const FVector& InWorldPosition)> InFunc);
 	
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
@@ -88,9 +88,6 @@ public:
 // ---------------------------------------------------------
 	
 public:
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
-	TSubclassOf<UE2GridRuntimeData> GridDataClass;
-	
 	// Indicate grid dimension (width, height)
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	FIntPoint GridDimension;
@@ -116,5 +113,5 @@ public:
 	TObjectPtr<UE2GridVisualizeComponent> GridVisualizeComponent; 
 	
 private:
-	TMap<int32, TObjectPtr<UE2GridRuntimeData>> GridMap;
+	TArray<FE2GridRuntimeData> GridMap;
 };

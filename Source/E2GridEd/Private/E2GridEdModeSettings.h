@@ -4,7 +4,6 @@
 #include "UObject/Object.h"
 #include "E2GridEdModeSettings.generated.h"
 
-class UE2GridRuntimeData;
 class AE2GridManager;
 
 UCLASS(Transient)
@@ -32,6 +31,4 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Grid", meta = (ClampMin = "1", UIMin = "1"))
 	int32 GridSize = 100;
 
-	UPROPERTY(EditAnywhere, Category = "Grid")
-	TSubclassOf<UE2GridRuntimeData> GridDataClass;
 };

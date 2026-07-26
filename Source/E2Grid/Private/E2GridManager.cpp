@@ -13,7 +13,6 @@ AE2GridManager::AE2GridManager()
 		// GridVisualizeComponent->SetVisibility(bShowVisualizedGrid);
 	}
 	
-	GridDataClass = UE2GridRuntimeData::StaticClass();
 	GridDimension = FIntPoint(10, 10);
 }
 
@@ -28,12 +27,11 @@ void AE2GridManager::Generate()
 {
 	Clear();
 	
-	// Fallback data class
-    UClass* DataClass = GridDataClass ? GridDataClass.Get() : UE2GridRuntimeData::StaticClass();
-
 	const int32 Width = GridDimension.X;
 	const int32 Height = GridDimension.Y;
 	const double HalfGridSize = static_cast<double>(GridSize) * 0.5;
+	const int32 GridCount = FMath::Max(Width, 0) * FMath::Max(Height, 0);
+	GridMap.SetNum(GridCount);
 
 	// Grid coordinates identify cell centers. Offset (0, 0) by half of the
 	// center-to-center span so that the actor origin remains at the grid center.
@@ -49,11 +47,9 @@ void AE2GridManager::Generate()
 			FE2GridCoord Coord(X , Y);
 			int32 GridKey = X + Y * Width;
 			
-			UE2GridRuntimeData* GridData = NewObject<UE2GridRuntimeData>(this, DataClass);
-			GridData->Coord = Coord;
-			GridData->GridKey= GridKey;
-			
-			GridMap.Add(GridKey, GridData);
+			FE2GridRuntimeData& GridData = GridMap[GridKey];
+			GridData.Coord = Coord;
+			GridData.GridKey = GridKey;
 		}
 	}
 	
@@ -71,7 +67,7 @@ void AE2GridManager::Clear()
 
 bool AE2GridManager::IsValidGridKey(const int32 InGridKey) const
 {
-	return InGridKey != INVALID_GRID_KEY;
+	return GridMap.IsValidIndex(InGridKey);
 }
 
 bool AE2GridManager::IsValidGridCoord(const FE2GridCoord& InCoord) const
@@ -84,19 +80,15 @@ bool AE2GridManager::IsGridMapEmpty()
 	return GridMap.IsEmpty();
 }
 
-const UE2GridRuntimeData* AE2GridManager::GetGridData(const int32 InGridKey)
+FE2GridRuntimeData AE2GridManager::GetGridData(const int32 InGridKey) const
 {
-	return GridMap[InGridKey];
+	return IsValidGridKey(InGridKey) ? GridMap[InGridKey] : FE2GridRuntimeData();
 }
 
 FE2GridCoord AE2GridManager::GetCoord(const int32 InGridKey)
 {
-	if (GridMap.Contains(InGridKey))
-	{
-		return GetGridData(InGridKey)->Coord;
-	}
-	
-	return FE2GridCoord::INVALID_COORD;
+	const FE2GridRuntimeData GridData = GetGridData(InGridKey);
+	return GridData.GridKey != INVALID_GRID_KEY ? GridData.Coord : FE2GridCoord::INVALID_COORD;
 }
 
 FVector AE2GridManager::GetWorldPosition(const FVector& InOrigin, const FE2GridCoord& InCoord)
@@ -147,13 +139,12 @@ void AE2GridManager::Tick(float DeltaTime)
 }
 
 void AE2GridManager::ForEachGridData(
-	TFunctionRef<bool(TObjectPtr<UE2GridRuntimeData> InGridData, const FVector& InWorldPosition)> InFunc)
+	TFunctionRef<bool(const FE2GridRuntimeData& InGridData, const FVector& InWorldPosition)> InFunc)
 {
-	for (const auto& Elem: GridMap)
+	for (const FE2GridRuntimeData& GridData : GridMap)
 	{
-		TObjectPtr<UE2GridRuntimeData> GridData = Elem.Value;
-		const FVector WorldPos = GetGridWorldPosition(GridData->Coord);
-		InFunc(Elem.Value, WorldPos);
+		const FVector WorldPos = GetGridWorldPosition(GridData.Coord);
+		InFunc(GridData, WorldPos);
 	}
 }
 
@@ -166,7 +157,6 @@ void AE2GridManager::PostEditChangeProperty(FPropertyChangedEvent& PropertyChang
 	{
 		if (PropertyChangedEvent.Property->GetFName() == GET_MEMBER_NAME_CHECKED(AE2GridManager, GridDimension) ||
 			PropertyChangedEvent.Property->GetFName() == GET_MEMBER_NAME_CHECKED(AE2GridManager, GridSize) || 
-			PropertyChangedEvent.Property->GetFName() == GET_MEMBER_NAME_CHECKED(AE2GridManager, GridDataClass) || 
 			PropertyChangedEvent.Property->GetFName() == GET_MEMBER_NAME_CHECKED(AE2GridManager, BaseOffset))
 		{
 			Generate();
@@ -210,10 +200,9 @@ void AE2GridManager::DrawGridMap(bool bClearOnly /*= false*/)
 			GridSize * 0.5 * GridScale.Y,
 			GridScale.Z);
 
-		for (const auto& Elem: GridMap)
+		for (const FE2GridRuntimeData& GridData : GridMap)
 		{
-			const UE2GridRuntimeData* GridData = Elem.Value;
-			const FE2GridCoord& Coord = GridData->Coord;
+			const FE2GridCoord& Coord = GridData.Coord;
 		
 			const FVector WorldPosition = GetGridWorldPosition(Coord);
 			DrawDebugCrosshairs(World, WorldPosition, GridRotation.Rotator(), 10.0f, FColor::Green, true);

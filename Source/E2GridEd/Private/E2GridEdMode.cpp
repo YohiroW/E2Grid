@@ -520,7 +520,6 @@ bool UE2GridEdMode::CommitSettings()
 		const FTransform SpawnTransform(Settings->Rotation, Settings->Location);
 		const FIntPoint GridDimension = Settings->GridDimension;
 		const int32 GridSize = Settings->GridSize;
-		const TSubclassOf<UE2GridRuntimeData> GridDataClass = Settings->GridDataClass;
 		FScopedTransaction Transaction(LOCTEXT("CreateGridManagerTransaction", "Create E2 Grid Manager"));
 
 		AE2GridManager* GridManager = Cast<AE2GridManager>(GEditor->AddActor(
@@ -539,7 +538,6 @@ bool UE2GridEdMode::CommitSettings()
 		GridManager->Modify();
 		GridManager->GridDimension = GridDimension;
 		GridManager->GridSize = GridSize;
-		GridManager->GridDataClass = GridDataClass;
 		GridManager->Generate();
 		GridManager->MarkPackageDirty();
 
@@ -556,8 +554,7 @@ bool UE2GridEdMode::CommitSettings()
 	const bool bTransformChanged = !Settings->Location.Equals(GridManager->GetActorLocation()) ||
 		!Settings->Rotation.Equals(GridManager->GetActorRotation());
 	const bool bGridChanged = Settings->GridDimension != GridManager->GridDimension ||
-		Settings->GridSize != GridManager->GridSize ||
-		Settings->GridDataClass != GridManager->GridDataClass;
+		Settings->GridSize != GridManager->GridSize;
 
 	FScopedTransaction Transaction(LOCTEXT("ApplyGridManagerSettingsTransaction", "Apply E2 Grid Manager Settings"));
 	GridManager->Modify();
@@ -577,7 +574,6 @@ bool UE2GridEdMode::CommitSettings()
 
 	GridManager->GridDimension = Settings->GridDimension;
 	GridManager->GridSize = Settings->GridSize;
-	GridManager->GridDataClass = Settings->GridDataClass;
 	if (bGridChanged)
 	{
 		GridManager->Generate();

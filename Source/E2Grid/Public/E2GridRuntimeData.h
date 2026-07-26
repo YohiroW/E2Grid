@@ -45,29 +45,25 @@ struct FE2GridCoord
 	int32 Layer = 0;	// Reserved not in used right now
 };
 
-UCLASS(Blueprintable, BlueprintType)
-class E2GRID_API UE2GridRuntimeData : public UObject
+USTRUCT(BlueprintType)
+struct E2GRID_API FE2GridRuntimeData
 {
 	GENERATED_BODY()
 	
 public:
-	UE2GridRuntimeData()
+	FE2GridRuntimeData()
 	: Coord(0, 0),
 	  GridKey(INVALID_GRID_KEY),
 	  GridFlags(0)
 	{
 	}
 
-	UFUNCTION(BlueprintCallable)
 	void SetWalkable(const bool bInIsWalkable);
 	
-	UFUNCTION(BlueprintPure)
 	bool IsWalkable() const;
 	
-	UFUNCTION(BlueprintCallable)
 	void SetCanWalkThrough(const bool bInCanWalkThrough);
 	
-	UFUNCTION(BlueprintPure)
 	bool CanWalkThrough() const;	
 	
 protected:
