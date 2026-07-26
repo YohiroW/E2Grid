@@ -5,12 +5,12 @@
 #include "E2GridManager.h"
 #include "Engine/Level.h"
 #include "IDetailsView.h"
-#include "Misc/MessageDialog.h"
 #include "Modules/ModuleManager.h"
 #include "PropertyEditorModule.h"
 #include "Styling/AppStyle.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Layout/SBorder.h"
+#include "Widgets/Layout/SWidgetSwitcher.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Text/STextBlock.h"
 
@@ -71,6 +71,7 @@ void SE2GridManagerView::Construct(const FArguments& InArgs)
 			.AutoHeight()
 			[
 				SNew(STextBlock)
+					.Visibility(this, &SE2GridManagerView::GetManagerSelectorVisibility)
 					.Text(LOCTEXT("GridManagerLabel", "Grid Manager"))
 			]
 			+ SVerticalBox::Slot()
@@ -78,6 +79,7 @@ void SE2GridManagerView::Construct(const FArguments& InArgs)
 			.Padding(0.0f, 4.0f, 0.0f, 8.0f)
 			[
 				SNew(SHorizontalBox)
+				.Visibility(this, &SE2GridManagerView::GetManagerSelectorVisibility)
 				+ SHorizontalBox::Slot()
 				.FillWidth(1.0f)
 				[
@@ -109,12 +111,29 @@ void SE2GridManagerView::Construct(const FArguments& InArgs)
 			.AutoHeight()
 			.Padding(0.0f, 8.0f, 0.0f, 0.0f)
 			[
+				SNew(SBorder)
+				.Visibility(this, &SE2GridManagerView::GetEditPlaceholderVisibility)
+				.Padding(8.0f)
+				.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
+				[
+					SNew(STextBlock)
+					.AutoWrapText(true)
+					.Text(LOCTEXT(
+						"GridEditPlaceholder",
+						"Grid editing tools will be added here. Manager settings can already be edited and applied above."))
+				]
+			]
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(0.0f, 8.0f, 0.0f, 0.0f)
+			[
 				SNew(SHorizontalBox)
 				+ SHorizontalBox::Slot()
 				.FillWidth(1.0f)
 				[
 					SNew(SButton)
 						.HAlign(HAlign_Center)
+						.Visibility(this, &SE2GridManagerView::GetRevertVisibility)
 						.Text(LOCTEXT("RevertGridManagerSettings", "Revert"))
 						.IsEnabled(this, &SE2GridManagerView::CanRevert)
 						.OnClicked(this, &SE2GridManagerView::OnRevertClicked)
@@ -123,11 +142,26 @@ void SE2GridManagerView::Construct(const FArguments& InArgs)
 				.FillWidth(1.0f)
 				.Padding(4.0f, 0.0f, 0.0f, 0.0f)
 				[
-					SNew(SButton)
-						.HAlign(HAlign_Center)
-						.Text(this, &SE2GridManagerView::GetCommitButtonText)
-						.IsEnabled(this, &SE2GridManagerView::CanCommit)
-						.OnClicked(this, &SE2GridManagerView::OnCommitClicked)
+					SNew(SWidgetSwitcher)
+					.WidgetIndex(this, &SE2GridManagerView::GetCommitButtonIndex)
+					+ SWidgetSwitcher::Slot()
+					[
+						SNew(SButton)
+							.ButtonStyle(&FAppStyle::Get(), "PrimaryButton")
+							.TextStyle(&FAppStyle::Get(), "PrimaryButtonText")
+							.HAlign(HAlign_Center)
+							.Text(LOCTEXT("CreateGridManager", "Create"))
+							.IsEnabled(this, &SE2GridManagerView::CanCommit)
+							.OnClicked(this, &SE2GridManagerView::OnCommitClicked)
+					]
+					+ SWidgetSwitcher::Slot()
+					[
+						SNew(SButton)
+							.HAlign(HAlign_Center)
+							.Text(LOCTEXT("ApplyGridManagerSettings", "Apply"))
+							.IsEnabled(this, &SE2GridManagerView::CanCommit)
+							.OnClicked(this, &SE2GridManagerView::OnCommitClicked)
+					]
 				]
 			]
 		]
@@ -148,7 +182,6 @@ void SE2GridManagerView::RefreshSettings()
 void SE2GridManagerView::RebuildManagerOptions()
 {
 	ManagerOptions.Reset();
-	ManagerOptions.Add(MakeShared<FE2GridManagerListItem>());
 	if (const UE2GridEdMode* E2GridEdMode = EditorMode.Get())
 	{
 		for (const TWeakObjectPtr<AE2GridManager>& GridManager : E2GridEdMode->GetGridManagers())
@@ -210,20 +243,10 @@ void SE2GridManagerView::OnManagerSelectionChanged(
 		return;
 	}
 
-	if (E2GridEdMode->HasPendingSettings())
+	if (!E2GridEdMode->ResolvePendingSettings())
 	{
-		const EAppReturnType::Type Response = FMessageDialog::Open(
-			EAppMsgType::YesNoCancel,
-			LOCTEXT(
-				"PendingGridSettings",
-				"The current grid settings have uncommitted changes.\n\n"
-				"Yes: Commit changes\nNo: Discard changes\nCancel: Keep editing"));
-		if (Response == EAppReturnType::Cancel ||
-			(Response == EAppReturnType::Yes && !E2GridEdMode->CommitSettings()))
-		{
-			SyncSelectedManager();
-			return;
-		}
+		SyncSelectedManager();
+		return;
 	}
 
 	E2GridEdMode->SetActiveGridManager(NewGridManager);
@@ -235,7 +258,7 @@ TSharedRef<SWidget> SE2GridManagerView::GenerateManagerOptionWidget(
 	return SNew(STextBlock)
 		.Text(InItem.IsValid() && InItem->GridManager.IsValid()
 			? GetGridManagerDisplayName(InItem->GridManager.Get())
-			: LOCTEXT("CreateNewGridManager", "Create New Grid Manager"));
+			: LOCTEXT("InvalidGridManagerOption", "Invalid Grid Manager"));
 }
 
 FText SE2GridManagerView::GetSelectedManagerText() const
@@ -243,15 +266,31 @@ FText SE2GridManagerView::GetSelectedManagerText() const
 	const UE2GridEdMode* E2GridEdMode = EditorMode.Get();
 	return E2GridEdMode && E2GridEdMode->GetActiveGridManager()
 		? GetGridManagerDisplayName(E2GridEdMode->GetActiveGridManager())
-		: LOCTEXT("CreateNewGridManager", "Create New Grid Manager");
+		: LOCTEXT("NoGridManager", "No Grid Manager");
 }
 
-FText SE2GridManagerView::GetCommitButtonText() const
+int32 SE2GridManagerView::GetCommitButtonIndex() const
 {
 	const UE2GridEdMode* E2GridEdMode = EditorMode.Get();
-	return E2GridEdMode && E2GridEdMode->IsCreatingGridManager()
-		? LOCTEXT("CreateGridManager", "Create Grid Manager")
-		: LOCTEXT("ApplyGridManagerSettings", "Apply");
+	return E2GridEdMode && E2GridEdMode->IsCreatingGridManager() ? 0 : 1;
+}
+
+EVisibility SE2GridManagerView::GetManagerSelectorVisibility() const
+{
+	const UE2GridEdMode* E2GridEdMode = EditorMode.Get();
+	return E2GridEdMode && !E2GridEdMode->IsCreatingGridManager()
+		? EVisibility::Visible
+		: EVisibility::Collapsed;
+}
+
+EVisibility SE2GridManagerView::GetEditPlaceholderVisibility() const
+{
+	return GetManagerSelectorVisibility();
+}
+
+EVisibility SE2GridManagerView::GetRevertVisibility() const
+{
+	return GetManagerSelectorVisibility();
 }
 
 void SE2GridManagerView::OnFinishedChangingProperties(const FPropertyChangedEvent& PropertyChangedEvent)
@@ -298,7 +337,8 @@ bool SE2GridManagerView::CanCommit() const
 bool SE2GridManagerView::CanRevert() const
 {
 	const UE2GridEdMode* E2GridEdMode = EditorMode.Get();
-	return E2GridEdMode && E2GridEdMode->HasPendingSettings();
+	return E2GridEdMode && !E2GridEdMode->IsCreatingGridManager() &&
+		E2GridEdMode->HasPendingSettings();
 }
 
 #undef LOCTEXT_NAMESPACE

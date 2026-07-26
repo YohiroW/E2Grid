@@ -1,11 +1,12 @@
 #include "E2GridEdModeToolkit.h"
+#include "E2GridEdModeCommands.h"
 #include "E2GridEdMode.h"
 #include "EditorModeManager.h"
+#include "Framework/MultiBox/MultiBoxBuilder.h"
 #include "Widgets/SE2GridBakeView.h"
 #include "Widgets/SE2GridDebugView.h"
 #include "Widgets/SE2GridManagerView.h"
 #include "Widgets/Layout/SWidgetSwitcher.h"
-#include "Widgets/SNullWidget.h"
 
 #define LOCTEXT_NAMESPACE "E2GridEdModeToolkit"
 
@@ -26,6 +27,20 @@ const TArray<FName> FE2GridEdModeToolkit::PaletteNames =
 void FE2GridEdModeToolkit::Init(const TSharedPtr<IToolkitHost>& InitToolkitHost, TWeakObjectPtr<UEdMode> InOwningMode)
 {
 	UE2GridEdMode* E2GridEdMode = CastChecked<UE2GridEdMode>(InOwningMode.Get());
+	TSharedRef<FUICommandList> CommandList = GetToolkitCommands();
+	const FE2GridEdModeCommands& Commands = FE2GridEdModeCommands::Get();
+	CommandList->MapAction(
+		Commands.NewTool,
+		FUIAction(
+			FExecuteAction::CreateSP(this, &FE2GridEdModeToolkit::OnChangeTool, EE2GridEdModeTool::New),
+			FCanExecuteAction::CreateSP(this, &FE2GridEdModeToolkit::IsToolEnabled, EE2GridEdModeTool::New),
+			FIsActionChecked::CreateSP(this, &FE2GridEdModeToolkit::IsToolActive, EE2GridEdModeTool::New)));
+	CommandList->MapAction(
+		Commands.EditTool,
+		FUIAction(
+			FExecuteAction::CreateSP(this, &FE2GridEdModeToolkit::OnChangeTool, EE2GridEdModeTool::Edit),
+			FCanExecuteAction::CreateSP(this, &FE2GridEdModeToolkit::IsToolEnabled, EE2GridEdModeTool::Edit),
+			FIsActionChecked::CreateSP(this, &FE2GridEdModeToolkit::IsToolActive, EE2GridEdModeTool::Edit)));
 
 	InlineContent = SAssignNew(PageSwitcher, SWidgetSwitcher)
 		+ SWidgetSwitcher::Slot()
@@ -89,12 +104,25 @@ FText FE2GridEdModeToolkit::GetToolPaletteDisplayName(FName PaletteName) const
 	return FText::GetEmpty();
 }
 
-TSharedRef<SWidget> FE2GridEdModeToolkit::CreatePaletteWidget(
-	TSharedPtr<FUICommandList> InCommandList,
-	FName InToolbarCustomizationName,
-	FName InPaletteName)
+void FE2GridEdModeToolkit::BuildToolPalette(FName PaletteName, FToolBarBuilder& ToolbarBuilder)
 {
-	return SNullWidget::NullWidget;
+	if (PaletteName == E2GridEdModePalettes::Grid)
+	{
+		const FE2GridEdModeCommands& Commands = FE2GridEdModeCommands::Get();
+		ToolbarBuilder.AddToolBarButton(
+			Commands.NewTool,
+			NAME_None,
+			TAttribute<FText>(),
+			TAttribute<FText>(),
+			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.PlusCircle"));
+
+		ToolbarBuilder.AddToolBarButton(
+			Commands.EditTool,
+			NAME_None,
+			TAttribute<FText>(),
+			TAttribute<FText>(),
+			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Edit"));
+	}
 }
 
 void FE2GridEdModeToolkit::OnToolPaletteChanged(FName PaletteName)
@@ -126,12 +154,41 @@ void FE2GridEdModeToolkit::RefreshSettings()
 
 FText FE2GridEdModeToolkit::GetActiveToolDisplayName() const
 {
+	if (GetCurrentPalette() == E2GridEdModePalettes::Grid)
+	{
+		if (const UE2GridEdMode* E2GridEdMode = Cast<UE2GridEdMode>(GetScriptableEditorMode().Get()))
+		{
+			return E2GridEdMode->IsCreatingGridManager()
+				? LOCTEXT("ActiveTool.New", "New")
+				: LOCTEXT("ActiveTool.Edit", "Edit");
+		}
+	}
 	return GetToolPaletteDisplayName(GetCurrentPalette());
 }
 
 FText FE2GridEdModeToolkit::GetActiveToolMessage() const
 {
 	return FModeToolkit::GetActiveToolMessage();
+}
+
+void FE2GridEdModeToolkit::OnChangeTool(EE2GridEdModeTool InTool)
+{
+	if (UE2GridEdMode* E2GridEdMode = Cast<UE2GridEdMode>(GetScriptableEditorMode().Get()))
+	{
+		E2GridEdMode->SetActiveTool(InTool);
+	}
+}
+
+bool FE2GridEdModeToolkit::IsToolEnabled(EE2GridEdModeTool InTool) const
+{
+	const UE2GridEdMode* E2GridEdMode = Cast<UE2GridEdMode>(GetScriptableEditorMode().Get());
+	return E2GridEdMode && E2GridEdMode->CanActivateTool(InTool);
+}
+
+bool FE2GridEdModeToolkit::IsToolActive(EE2GridEdModeTool InTool) const
+{
+	const UE2GridEdMode* E2GridEdMode = Cast<UE2GridEdMode>(GetScriptableEditorMode().Get());
+	return E2GridEdMode && E2GridEdMode->IsToolActive(InTool);
 }
 
 void FE2GridEdModeToolkit::RequestModeUITabs()

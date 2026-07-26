@@ -36,7 +36,10 @@ private:
 	void OnManagerSelectionChanged(TSharedPtr<FE2GridManagerListItem> InItem, ESelectInfo::Type InSelectInfo);
 	TSharedRef<SWidget> GenerateManagerOptionWidget(TSharedPtr<FE2GridManagerListItem> InItem) const;
 	FText GetSelectedManagerText() const;
-	FText GetCommitButtonText() const;
+	int32 GetCommitButtonIndex() const;
+	EVisibility GetManagerSelectorVisibility() const;
+	EVisibility GetEditPlaceholderVisibility() const;
+	EVisibility GetRevertVisibility() const;
 	void OnFinishedChangingProperties(const FPropertyChangedEvent& PropertyChangedEvent);
 	FReply OnRefreshClicked();
 	FReply OnCommitClicked();

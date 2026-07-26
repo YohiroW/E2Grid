@@ -11,6 +11,7 @@
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "Math/RotationMatrix.h"
+#include "Misc/MessageDialog.h"
 #include "PrimitiveDrawInterface.h"
 #include "ScopedTransaction.h"
 #include "SceneManagement.h"
@@ -49,6 +50,7 @@ void UE2GridEdMode::Enter()
 	Settings->ResetToDefaults();
 	bSettingsDirty = false;
 	ActivePage = EE2GridEdModePage::Grid;
+	ActiveTool = EE2GridEdModeTool::New;
 
 	Super::Enter();
 
@@ -58,6 +60,10 @@ void UE2GridEdMode::Enter()
 		LevelActorDeletedHandle = GEngine->OnLevelActorDeleted().AddUObject(this, &UE2GridEdMode::HandleLevelActorDeleted);
 	}
 	RefreshGridManagers();
+	if (CanActivateTool(EE2GridEdModeTool::Edit))
+	{
+		SetActiveTool(EE2GridEdModeTool::Edit);
+	}
 
 	// GEditor->OnEditorClose().AddUObject(this, &UMeshPaintMode::OnResetViewMode);
 	// FCoreUObjectDelegates::OnObjectsReplaced.AddUObject(this, &UMeshPaintMode::OnObjectsReplaced);
@@ -177,26 +183,66 @@ void UE2GridEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimiti
 		? ActiveGridManager->GetActorScale3D()
 		: FVector::OneVector;
 	const FTransform PreviewTransform(Settings->Rotation, Settings->Location, PreviewScale);
+	const FLinearColor CornerLineColor(1.00f, 0.45f, 0.00f);
+	const FLinearColor OuterLineColor(1.00f, 0.85f, 0.00f);
 	const FLinearColor InnerLineColor(0.05f, 0.65f, 0.10f);
-	const FLinearColor BorderLineColor(0.10f, 1.00f, 0.20f);
+	const double CornerLength = FMath::Min(
+		GridSize * 0.33,
+		FMath::Min(HalfWidth, HalfHeight));
 
-	for (int32 X = 0; X <= Width; ++X)
+	const auto DrawLocalLine = [PDI, &PreviewTransform](
+		const FVector& LocalStart,
+		const FVector& LocalEnd,
+		const FLinearColor& Color,
+		float Thickness,
+		ESceneDepthPriorityGroup DepthPriority)
+	{
+		PDI->DrawLine(
+			PreviewTransform.TransformPosition(LocalStart),
+			PreviewTransform.TransformPosition(LocalEnd),
+			Color,
+			DepthPriority,
+			Thickness);
+	};
+
+	for (int32 X = 1; X < Width; ++X)
 	{
 		const double LocalX = -HalfWidth + static_cast<double>(X) * GridSize;
-		const FVector Start = PreviewTransform.TransformPosition(FVector(LocalX, -HalfHeight, 0.0));
-		const FVector End = PreviewTransform.TransformPosition(FVector(LocalX, HalfHeight, 0.0));
-		const bool bIsBorder = X == 0 || X == Width;
-		PDI->DrawLine(Start, End, bIsBorder ? BorderLineColor : InnerLineColor, SDPG_Foreground, bIsBorder ? 2.0f : 0.75f);
+		DrawLocalLine(
+			FVector(LocalX, -HalfHeight, 0.0),
+			FVector(LocalX, HalfHeight, 0.0),
+			InnerLineColor,
+			0.75f,
+			SDPG_World);
 	}
 
-	for (int32 Y = 0; Y <= Height; ++Y)
+	for (int32 Y = 1; Y < Height; ++Y)
 	{
 		const double LocalY = -HalfHeight + static_cast<double>(Y) * GridSize;
-		const FVector Start = PreviewTransform.TransformPosition(FVector(-HalfWidth, LocalY, 0.0));
-		const FVector End = PreviewTransform.TransformPosition(FVector(HalfWidth, LocalY, 0.0));
-		const bool bIsBorder = Y == 0 || Y == Height;
-		PDI->DrawLine(Start, End, bIsBorder ? BorderLineColor : InnerLineColor, SDPG_Foreground, bIsBorder ? 2.0f : 0.75f);
+		DrawLocalLine(
+			FVector(-HalfWidth, LocalY, 0.0),
+			FVector(HalfWidth, LocalY, 0.0),
+			InnerLineColor,
+			0.75f,
+			SDPG_World);
 	}
+
+	const auto DrawBorder = [&DrawLocalLine, CornerLength, &CornerLineColor, &OuterLineColor](
+		const FVector& LocalStart,
+		const FVector& LocalEnd)
+	{
+		const FVector Direction = (LocalEnd - LocalStart).GetSafeNormal();
+		const double BorderLength = FVector::Distance(LocalStart, LocalEnd);
+		const FVector CornerOffset = Direction * FMath::Min(CornerLength, BorderLength * 0.5);
+		DrawLocalLine(LocalStart, LocalStart + CornerOffset, CornerLineColor, 2.5f, SDPG_Foreground);
+		DrawLocalLine(LocalStart + CornerOffset, LocalEnd - CornerOffset, OuterLineColor, 2.0f, SDPG_Foreground);
+		DrawLocalLine(LocalEnd - CornerOffset, LocalEnd, CornerLineColor, 2.5f, SDPG_Foreground);
+	};
+
+	DrawBorder(FVector(-HalfWidth, -HalfHeight, 0.0), FVector(HalfWidth, -HalfHeight, 0.0));
+	DrawBorder(FVector(HalfWidth, -HalfHeight, 0.0), FVector(HalfWidth, HalfHeight, 0.0));
+	DrawBorder(FVector(HalfWidth, HalfHeight, 0.0), FVector(-HalfWidth, HalfHeight, 0.0));
+	DrawBorder(FVector(-HalfWidth, HalfHeight, 0.0), FVector(-HalfWidth, -HalfHeight, 0.0));
 }
 
 bool UE2GridEdMode::InputDelta(
@@ -365,9 +411,30 @@ void UE2GridEdMode::SetActivePage(EE2GridEdModePage InPage)
 	}
 }
 
+bool UE2GridEdMode::CanActivateTool(EE2GridEdModeTool InTool) const
+{
+	return InTool == EE2GridEdModeTool::New || GridManagers.ContainsByPredicate(
+		[](const TWeakObjectPtr<AE2GridManager>& GridManager)
+		{
+			return GridManager.IsValid();
+		});
+}
+
+void UE2GridEdMode::SetActiveTool(EE2GridEdModeTool InTool)
+{
+	if (ActiveTool == InTool || !CanActivateTool(InTool) || !ResolvePendingSettings())
+	{
+		return;
+	}
+
+	ActiveTool = InTool;
+	bSettingsDirty = false;
+	RefreshGridManagers();
+}
+
 void UE2GridEdMode::NotifySettingsChanged(bool bRefreshDetails)
 {
-	bSettingsDirty = IsCreatingGridManager() || (Settings &&
+	bSettingsDirty = IsCreatingGridManager() || (Settings && ActiveGridManager.IsValid() &&
 		!Settings->MatchesGridManager(*ActiveGridManager));
 
 	if (bRefreshDetails && Toolkit.IsValid())
@@ -409,6 +476,10 @@ void UE2GridEdMode::RefreshGridManagers()
 			? LeftManager->GetActorLabel() < RightManager->GetActorLabel()
 			: LeftManager != nullptr;
 	});
+	if (ActiveTool == EE2GridEdModeTool::Edit && GridManagers.IsEmpty())
+	{
+		ActiveTool = EE2GridEdModeTool::New;
+	}
 
 	const bool bPreviousManagerStillExists = PreviousGridManager && GridManagers.ContainsByPredicate(
 		[PreviousGridManager](const TWeakObjectPtr<AE2GridManager>& GridManager)
@@ -416,8 +487,10 @@ void UE2GridEdMode::RefreshGridManagers()
 			return GridManager.Get() == PreviousGridManager;
 		});
 
-	AE2GridManager* NewGridManager = bPreviousManagerStillExists ? PreviousGridManager : nullptr;
-	if (!NewGridManager && !bKeepCreateDraft)
+	AE2GridManager* NewGridManager = ActiveTool == EE2GridEdModeTool::Edit && bPreviousManagerStillExists
+		? PreviousGridManager
+		: nullptr;
+	if (ActiveTool == EE2GridEdModeTool::Edit && !NewGridManager)
 	{
 		for (const TWeakObjectPtr<AE2GridManager>& GridManager : GridManagers)
 		{
@@ -428,23 +501,21 @@ void UE2GridEdMode::RefreshGridManagers()
 			}
 		}
 	}
-	if (!NewGridManager && !bKeepCreateDraft && GridManagers.Num() == 1)
+	if (ActiveTool == EE2GridEdModeTool::Edit && !NewGridManager && !GridManagers.IsEmpty())
 	{
 		NewGridManager = GridManagers[0].Get();
 	}
 
 	const bool bTargetChanged = ActiveGridManager.Get() != NewGridManager;
 	ActiveGridManager = NewGridManager;
-	if (Settings && (bTargetChanged || !bSettingsDirty))
+	if (Settings && NewGridManager && (bTargetChanged || !bSettingsDirty))
 	{
-		if (NewGridManager)
-		{
-			Settings->LoadFromGridManager(*NewGridManager);
-		}
-		else
-		{
-			Settings->ResetToDefaults();
-		}
+		Settings->LoadFromGridManager(*NewGridManager);
+		bSettingsDirty = false;
+	}
+	else if (Settings && !NewGridManager && !bKeepCreateDraft)
+	{
+		Settings->ResetToDefaults();
 		bSettingsDirty = false;
 	}
 
@@ -464,11 +535,16 @@ void UE2GridEdMode::SetActiveGridManager(AE2GridManager* InGridManager)
 	{
 		return;
 	}
-	if (ActiveGridManager.Get() == InGridManager)
+	const bool bToolChanged = InGridManager && ActiveTool != EE2GridEdModeTool::Edit;
+	if (ActiveGridManager.Get() == InGridManager && !bToolChanged)
 	{
 		return;
 	}
 
+	if (InGridManager)
+	{
+		ActiveTool = EE2GridEdModeTool::Edit;
+	}
 	ActiveGridManager = InGridManager;
 	bSettingsDirty = false;
 	if (Settings)
@@ -496,7 +572,33 @@ void UE2GridEdMode::SetActiveGridManager(AE2GridManager* InGridManager)
 bool UE2GridEdMode::HasPendingSettings() const
 {
 	return bSettingsDirty && Settings && (IsCreatingGridManager() ||
-		!Settings->MatchesGridManager(*ActiveGridManager));
+		(ActiveGridManager.IsValid() && !Settings->MatchesGridManager(*ActiveGridManager)));
+}
+
+bool UE2GridEdMode::ResolvePendingSettings()
+{
+	if (!HasPendingSettings())
+	{
+		return true;
+	}
+
+	const EAppReturnType::Type Response = FMessageDialog::Open(
+		EAppMsgType::YesNoCancel,
+		LOCTEXT(
+			"PendingGridSettings",
+			"The current grid settings have uncommitted changes.\n\n"
+			"Yes: Commit changes\nNo: Discard changes\nCancel: Keep editing"));
+	if (Response == EAppReturnType::Cancel)
+	{
+		return false;
+	}
+	if (Response == EAppReturnType::Yes)
+	{
+		return CommitSettings();
+	}
+
+	RevertSettings();
+	return true;
 }
 
 bool UE2GridEdMode::CanCommitSettings() const
@@ -508,7 +610,7 @@ bool UE2GridEdMode::CanCommitSettings() const
 
 	if (!IsCreatingGridManager())
 	{
-		return HasPendingSettings();
+		return ActiveGridManager.IsValid() && HasPendingSettings();
 	}
 
 	const UWorld* World = GetWorld();
@@ -551,6 +653,7 @@ bool UE2GridEdMode::CommitSettings()
 
 		GEditor->SelectNone(false, true, false);
 		GEditor->SelectActor(GridManager, true, true, true);
+		ActiveTool = EE2GridEdModeTool::Edit;
 		bSettingsDirty = false;
 		RefreshGridManagers();
 		SetActiveGridManager(GridManager);

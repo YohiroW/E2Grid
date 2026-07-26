@@ -22,10 +22,7 @@ public:
 	/** Mode Toolbar Palettes **/
 	virtual void GetToolPaletteNames(TArray<FName>& InPaletteName) const override;
 	virtual FText GetToolPaletteDisplayName(FName PaletteName) const override;
-	virtual TSharedRef<SWidget> CreatePaletteWidget(
-		TSharedPtr<FUICommandList> InCommandList,
-		FName InToolbarCustomizationName,
-		FName InPaletteName) override;
+	virtual void BuildToolPalette(FName PaletteName, class FToolBarBuilder& ToolbarBuilder) override;
 	virtual void OnToolPaletteChanged(FName PaletteName) override;
 
 	void RefreshSettings();
@@ -35,13 +32,9 @@ public:
 	virtual FText GetActiveToolMessage() const;
 
 protected:
-	// void OnChangeMode(FName ModeName);
-	// bool IsModeEnabled(FName ModeName) const;
-	// bool IsModeActive(FName ModeName) const;
-	//
-	// void OnChangeTool(FName ToolName);
-	// bool IsToolEnabled(FName ToolName) const;
-	// bool IsToolActive(FName ToolName) const;
+	void OnChangeTool(EE2GridEdModeTool InTool);
+	bool IsToolEnabled(EE2GridEdModeTool InTool) const;
+	bool IsToolActive(EE2GridEdModeTool InTool) const;
 
 	/** FModeToolkit interface */
 	virtual void RequestModeUITabs() override;

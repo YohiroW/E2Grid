@@ -15,6 +15,12 @@ enum class EE2GridEdModePage : uint8
 	Debug
 };
 
+enum class EE2GridEdModeTool : uint8
+{
+	New,
+	Edit
+};
+
 UCLASS()
 class UE2GridEdMode : public UBaseLegacyWidgetEdMode
 {
@@ -47,12 +53,17 @@ public:
 	UE2GridEdModeSettings* GetSettings() const { return Settings; }
 	const TArray<TWeakObjectPtr<AE2GridManager>>& GetGridManagers() const { return GridManagers; }
 	AE2GridManager* GetActiveGridManager() const { return ActiveGridManager.Get(); }
-	bool IsCreatingGridManager() const { return !ActiveGridManager.IsValid(); }
+	EE2GridEdModeTool GetActiveTool() const { return ActiveTool; }
+	bool IsToolActive(EE2GridEdModeTool InTool) const { return ActiveTool == InTool; }
+	bool CanActivateTool(EE2GridEdModeTool InTool) const;
+	bool IsCreatingGridManager() const { return IsToolActive(EE2GridEdModeTool::New); }
 	void SetActivePage(EE2GridEdModePage InPage);
+	void SetActiveTool(EE2GridEdModeTool InTool);
 	void NotifySettingsChanged(bool bRefreshDetails);
 	void RefreshGridManagers();
 	void SetActiveGridManager(AE2GridManager* InGridManager);
 	bool HasPendingSettings() const;
+	bool ResolvePendingSettings();
 	bool CanCommitSettings() const;
 	bool CommitSettings();
 	void RevertSettings();
@@ -89,6 +100,7 @@ protected:
 	TWeakObjectPtr<AE2GridManager> ActiveGridManager;
 
 	EE2GridEdModePage ActivePage = EE2GridEdModePage::Grid;
+	EE2GridEdModeTool ActiveTool = EE2GridEdModeTool::New;
 	bool bSettingsDirty = false;
 
 	FDelegateHandle PaletteChangedHandle;
