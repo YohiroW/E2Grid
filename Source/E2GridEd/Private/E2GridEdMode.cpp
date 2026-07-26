@@ -163,7 +163,7 @@ void UE2GridEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimiti
 {
 	Super::Render(View, Viewport, PDI);
 
-	if (!IsGridPageActive() || !IsCreatingGridManager() || !Settings || !Settings->IsValid())
+	if (!IsGridPageActive() || !Settings || !Settings->bShowPreview || !Settings->IsValid())
 	{
 		return;
 	}
@@ -173,7 +173,10 @@ void UE2GridEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimiti
 	const double GridSize = static_cast<double>(Settings->GridSize);
 	const double HalfWidth = static_cast<double>(Width) * GridSize * 0.5;
 	const double HalfHeight = static_cast<double>(Height) * GridSize * 0.5;
-	const FTransform PreviewTransform(Settings->Rotation, Settings->Location);
+	const FVector PreviewScale = ActiveGridManager.IsValid()
+		? ActiveGridManager->GetActorScale3D()
+		: FVector::OneVector;
+	const FTransform PreviewTransform(Settings->Rotation, Settings->Location, PreviewScale);
 	const FLinearColor InnerLineColor(0.05f, 0.65f, 0.10f);
 	const FLinearColor BorderLineColor(0.10f, 1.00f, 0.20f);
 
@@ -203,7 +206,7 @@ bool UE2GridEdMode::InputDelta(
 	FRotator& InRot,
 	FVector& InScale)
 {
-	if (IsGridPageActive() && IsCreatingGridManager() && Settings &&
+	if (CanUseTransformWidget() &&
 		InViewportClient->GetCurrentWidgetAxis() != EAxisList::None &&
 		(!InDrag.IsNearlyZero() || !InRot.IsNearlyZero()))
 	{
@@ -224,17 +227,17 @@ bool UE2GridEdMode::HandleClick(FEditorViewportClient* InViewportClient, HHitPro
 
 bool UE2GridEdMode::ShouldDrawWidget() const
 {
-	return IsGridPageActive() && IsCreatingGridManager();
+	return CanUseTransformWidget();
 }
 
 bool UE2GridEdMode::UsesTransformWidget() const
 {
-	return IsGridPageActive() && IsCreatingGridManager();
+	return CanUseTransformWidget();
 }
 
 bool UE2GridEdMode::UsesTransformWidget(UE::Widget::EWidgetMode CheckMode) const
 {
-	return IsGridPageActive() && IsCreatingGridManager() &&
+	return CanUseTransformWidget() &&
 		(CheckMode == UE::Widget::WM_Translate || CheckMode == UE::Widget::WM_Rotate);
 }
 
@@ -245,7 +248,7 @@ bool UE2GridEdMode::UsesPropertyWidgets() const
 
 EAxisList::Type UE2GridEdMode::GetWidgetAxisToDraw(UE::Widget::EWidgetMode InWidgetMode) const
 {
-	if (!IsGridPageActive() || !IsCreatingGridManager())
+	if (!CanUseTransformWidget())
 	{
 		return EAxisList::None;
 	}
@@ -268,7 +271,7 @@ FVector UE2GridEdMode::GetWidgetLocation() const
 
 bool UE2GridEdMode::GetCustomDrawingCoordinateSystem(FMatrix& InMatrix, void* InData)
 {
-	if (!IsGridPageActive() || !IsCreatingGridManager() || !Settings)
+	if (!CanUseTransformWidget())
 	{
 		return false;
 	}
@@ -280,6 +283,11 @@ bool UE2GridEdMode::GetCustomDrawingCoordinateSystem(FMatrix& InMatrix, void* In
 bool UE2GridEdMode::GetCustomInputCoordinateSystem(FMatrix& InMatrix, void* InData)
 {
 	return GetCustomDrawingCoordinateSystem(InMatrix, InData);
+}
+
+bool UE2GridEdMode::CanUseTransformWidget() const
+{
+	return IsGridPageActive() && Settings != nullptr;
 }
 
 TMap<FName, TArray<TSharedPtr<FUICommandInfo>>> UE2GridEdMode::GetModeCommands() const

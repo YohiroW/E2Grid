@@ -31,4 +31,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Grid", meta = (ClampMin = "1", UIMin = "1"))
 	int32 GridSize = 100;
 
+	UPROPERTY(EditAnywhere, Category = "Preview")
+	bool bShowPreview = true;
+
 };

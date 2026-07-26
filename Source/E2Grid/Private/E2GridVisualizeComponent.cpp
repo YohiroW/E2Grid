@@ -1,5 +1,6 @@
 #include "E2GridVisualizeComponent.h"
 #include "E2GridManager.h"
+#include "Engine/StaticMesh.h"
 #include "UObject/ConstructorHelpers.h"
 
 UE2GridVisualizeComponent::UE2GridVisualizeComponent()
@@ -17,7 +18,8 @@ UE2GridVisualizeComponent::UE2GridVisualizeComponent()
 
 void UE2GridVisualizeComponent::BuildGridInstancedMeshes()
 {
-	if (!GridOwner)
+	const UStaticMesh* VisualMesh = GetStaticMesh();
+	if (!GridOwner || !VisualMesh)
 	{
 		return;
 	}
@@ -25,7 +27,12 @@ void UE2GridVisualizeComponent::BuildGridInstancedMeshes()
 	ClearInstances();
 	
 	const FRotator Rot = GridOwner->GetActorRotation();
-	const FVector Scale = GridOwner->GetActorScale3D();
+	const FVector MeshSize = VisualMesh->GetBounds().BoxExtent * 2.0;
+	const FVector GridScale(
+		MeshSize.X > UE_SMALL_NUMBER ? GridOwner->GridSize / MeshSize.X : 1.0,
+		MeshSize.Y > UE_SMALL_NUMBER ? GridOwner->GridSize / MeshSize.Y : 1.0,
+		1.0);
+	const FVector Scale = GridOwner->GetActorScale3D() * GridScale;
 	GridOwner->ForEachGridData([&](const FE2GridRuntimeData&, const FVector& InWorldPos) -> bool
 	{
 		FTransform InstanceTransform;

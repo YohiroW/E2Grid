@@ -72,6 +72,7 @@ protected:
 	// end UEdMode Interface
 
 	bool IsGridPageActive() const;
+	bool CanUseTransformWidget() const;
 	void HandleLevelActorAdded(AActor* InActor);
 	void HandleLevelActorDeleted(AActor* InActor);
 
