@@ -80,6 +80,11 @@ bool AE2GridManager::IsGridMapEmpty()
 	return GridMap.IsEmpty();
 }
 
+int32 AE2GridManager::GetGridKey(const FE2GridCoord& InCoord) const
+{
+	return InCoord.X + InCoord.Y * GridDimension.X;
+}
+
 FE2GridRuntimeData AE2GridManager::GetGridData(const int32 InGridKey) const
 {
 	return IsValidGridKey(InGridKey) ? GridMap[InGridKey] : FE2GridRuntimeData();

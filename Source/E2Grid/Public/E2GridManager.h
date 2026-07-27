@@ -20,6 +20,7 @@ class E2GRID_API AE2GridManager : public AActor
 public:
 	AE2GridManager();
 	
+	// Deprecated, the function should not be called by user, Grid Mode should be used to generate grid data.
 	UFUNCTION(BlueprintCallable, CallInEditor)
 	void Generate();
 	
@@ -34,6 +35,9 @@ public:
 	
 	UFUNCTION(BlueprintCallable)
 	bool IsGridMapEmpty();
+	
+	UFUNCTION(BlueprintPure)
+	int32 GetGridKey(const FE2GridCoord& InCoord) const;
 	
 	UFUNCTION(BlueprintCallable)
 	FE2GridRuntimeData GetGridData(const int32 InGridKey) const;
@@ -104,7 +108,7 @@ public:
 #endif
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
-	TObjectPtr<UE2GridMapAsset> GridDataAsset;
+	TObjectPtr<UE2GridMapAsset> GridMapAsset;
 	
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	bool bShowVisualizedGrid = false;
@@ -113,5 +117,6 @@ public:
 	TObjectPtr<UE2GridVisualizeComponent> GridVisualizeComponent; 
 	
 private:
+	UPROPERTY()
 	TArray<FE2GridRuntimeData> GridMap;
 };
