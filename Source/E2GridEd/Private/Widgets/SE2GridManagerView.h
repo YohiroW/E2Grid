@@ -37,8 +37,9 @@ private:
 	TSharedRef<SWidget> GenerateManagerOptionWidget(TSharedPtr<FE2GridManagerListItem> InItem) const;
 	FText GetSelectedManagerText() const;
 	int32 GetCommitButtonIndex() const;
+	int32 GetGridDetailsIndex() const;
 	EVisibility GetManagerSelectorVisibility() const;
-	EVisibility GetEditPlaceholderVisibility() const;
+	EVisibility GetGridDetailsVisibility() const;
 	EVisibility GetRevertVisibility() const;
 	void OnFinishedChangingProperties(const FPropertyChangedEvent& PropertyChangedEvent);
 	FReply OnRefreshClicked();
@@ -49,6 +50,7 @@ private:
 
 	TWeakObjectPtr<UE2GridEdMode> EditorMode;
 	TSharedPtr<IDetailsView> DetailsView;
+	TSharedPtr<IDetailsView> GridDetailsView;
 	TSharedPtr<SComboBox<TSharedPtr<FE2GridManagerListItem>>> ManagerComboBox;
 	TArray<TSharedPtr<FE2GridManagerListItem>> ManagerOptions;
 	bool bUpdatingSelection = false;

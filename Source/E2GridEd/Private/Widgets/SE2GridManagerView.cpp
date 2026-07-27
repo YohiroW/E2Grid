@@ -1,5 +1,6 @@
 #include "Widgets/SE2GridManagerView.h"
 
+#include "E2GridEdModeGridSettings.h"
 #include "E2GridEdModeSettings.h"
 #include "E2GridEdMode.h"
 #include "E2GridManager.h"
@@ -57,6 +58,7 @@ void SE2GridManagerView::Construct(const FArguments& InArgs)
 	check(E2GridEdMode);
 
 	DetailsView = MakeSettingsDetailsView(E2GridEdMode->GetSettings());
+	GridDetailsView = MakeSettingsDetailsView(E2GridEdMode->GetGridSettings());
 	DetailsView->OnFinishedChangingProperties().AddSP(this, &SE2GridManagerView::OnFinishedChangingProperties);
 	RebuildManagerOptions();
 
@@ -112,15 +114,36 @@ void SE2GridManagerView::Construct(const FArguments& InArgs)
 			.Padding(0.0f, 8.0f, 0.0f, 0.0f)
 			[
 				SNew(SBorder)
-				.Visibility(this, &SE2GridManagerView::GetEditPlaceholderVisibility)
+				.Visibility(this, &SE2GridManagerView::GetGridDetailsVisibility)
 				.Padding(8.0f)
 				.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
 				[
-					SNew(STextBlock)
-					.AutoWrapText(true)
-					.Text(LOCTEXT(
-						"GridEditPlaceholder",
-						"Grid editing tools will be added here. Manager settings can already be edited and applied above."))
+					SNew(SVerticalBox)
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("SelectedGridLabel", "Selected Grid"))
+					]
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.0f, 4.0f, 0.0f, 0.0f)
+					[
+						SNew(SWidgetSwitcher)
+						.WidgetIndex(this, &SE2GridManagerView::GetGridDetailsIndex)
+						+ SWidgetSwitcher::Slot()
+						[
+							SNew(STextBlock)
+							.AutoWrapText(true)
+							.Text(LOCTEXT(
+								"SelectGridHint",
+								"Hover and click a grid cell to inspect its runtime data."))
+						]
+						+ SWidgetSwitcher::Slot()
+						[
+							GridDetailsView.ToSharedRef()
+						]
+					]
 				]
 			]
 			+ SVerticalBox::Slot()
@@ -176,6 +199,10 @@ void SE2GridManagerView::RefreshSettings()
 	if (DetailsView.IsValid())
 	{
 		DetailsView->ForceRefresh();
+	}
+	if (GridDetailsView.IsValid())
+	{
+		GridDetailsView->ForceRefresh();
 	}
 }
 
@@ -275,6 +302,12 @@ int32 SE2GridManagerView::GetCommitButtonIndex() const
 	return E2GridEdMode && E2GridEdMode->IsCreatingGridManager() ? 0 : 1;
 }
 
+int32 SE2GridManagerView::GetGridDetailsIndex() const
+{
+	const UE2GridEdMode* E2GridEdMode = EditorMode.Get();
+	return E2GridEdMode && E2GridEdMode->HasSelectedGrid() ? 1 : 0;
+}
+
 EVisibility SE2GridManagerView::GetManagerSelectorVisibility() const
 {
 	const UE2GridEdMode* E2GridEdMode = EditorMode.Get();
@@ -283,7 +316,7 @@ EVisibility SE2GridManagerView::GetManagerSelectorVisibility() const
 		: EVisibility::Collapsed;
 }
 
-EVisibility SE2GridManagerView::GetEditPlaceholderVisibility() const
+EVisibility SE2GridManagerView::GetGridDetailsVisibility() const
 {
 	return GetManagerSelectorVisibility();
 }

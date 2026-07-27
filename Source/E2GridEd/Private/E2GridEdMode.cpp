@@ -1,5 +1,6 @@
 #include "E2GridEdMode.h"
 
+#include "E2GridEdModeGridSettings.h"
 #include "E2GridEdModeSettings.h"
 #include "E2GridEdModeToolkit.h"
 #include "E2GridManager.h"
@@ -39,6 +40,7 @@ void UE2GridEdMode::Initialize()
 {
 	Super::Initialize();
 	Settings = NewObject<UE2GridEdModeSettings>(this);
+	GridSettings = NewObject<UE2GridEdModeGridSettings>(this);
 }
 
 void UE2GridEdMode::Enter()
@@ -47,7 +49,12 @@ void UE2GridEdMode::Enter()
 	{
 		Settings = NewObject<UE2GridEdModeSettings>(this);
 	}
+	if (!GridSettings)
+	{
+		GridSettings = NewObject<UE2GridEdModeGridSettings>(this);
+	}
 	Settings->ResetToDefaults();
+	ClearSelectedGrid();
 	bSettingsDirty = false;
 	ActivePage = EE2GridEdModePage::Grid;
 	ActiveTool = EE2GridEdModeTool::New;
@@ -124,6 +131,7 @@ void UE2GridEdMode::Exit()
 	GridManagers.Reset();
 	ActiveGridManager.Reset();
 	HoveredGridCoord.Reset();
+	ClearSelectedGrid();
 	bSettingsDirty = false;
 
 	// ModeSettings->DefaultPalette = Toolkit->GetCurrentPalette();
@@ -242,23 +250,48 @@ void UE2GridEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimiti
 	DrawBorder(FVector(HalfWidth, HalfHeight, 0.0), FVector(-HalfWidth, HalfHeight, 0.0));
 	DrawBorder(FVector(-HalfWidth, HalfHeight, 0.0), FVector(-HalfWidth, -HalfHeight, 0.0));
 
+	const auto DrawGridCellOutline = [
+		&DrawLocalLine,
+		Width,
+		Height,
+		GridSize,
+		HalfWidth,
+		HalfHeight](
+		const FIntPoint& Coord,
+		const FLinearColor& Color,
+		float Thickness,
+		double LocalZ)
+	{
+		if (Coord.X < 0 || Coord.X >= Width || Coord.Y < 0 || Coord.Y >= Height)
+		{
+			return;
+		}
+
+		const double MinX = -HalfWidth + static_cast<double>(Coord.X) * GridSize;
+		const double MinY = -HalfHeight + static_cast<double>(Coord.Y) * GridSize;
+		const double MaxX = MinX + GridSize;
+		const double MaxY = MinY + GridSize;
+		DrawLocalLine(FVector(MinX, MinY, LocalZ), FVector(MaxX, MinY, LocalZ), Color, Thickness, SDPG_Foreground);
+		DrawLocalLine(FVector(MaxX, MinY, LocalZ), FVector(MaxX, MaxY, LocalZ), Color, Thickness, SDPG_Foreground);
+		DrawLocalLine(FVector(MaxX, MaxY, LocalZ), FVector(MinX, MaxY, LocalZ), Color, Thickness, SDPG_Foreground);
+		DrawLocalLine(FVector(MinX, MaxY, LocalZ), FVector(MinX, MinY, LocalZ), Color, Thickness, SDPG_Foreground);
+	};
+
+	if (SelectedGridCoord.IsSet())
+	{
+		DrawGridCellOutline(
+			SelectedGridCoord.GetValue(),
+			FLinearColor(1.00f, 0.05f, 0.55f),
+			4.5f,
+			0.75);
+	}
 	if (HoveredGridCoord.IsSet())
 	{
-		const FIntPoint Coord = HoveredGridCoord.GetValue();
-		if (Coord.X >= 0 && Coord.X < Width && Coord.Y >= 0 && Coord.Y < Height)
-		{
-			const double MinX = -HalfWidth + static_cast<double>(Coord.X) * GridSize;
-			const double MinY = -HalfHeight + static_cast<double>(Coord.Y) * GridSize;
-			const double MaxX = MinX + GridSize;
-			const double MaxY = MinY + GridSize;
-			const double HoverZ = 0.5;
-			const FLinearColor HoverLineColor(0.00f, 0.45f, 1.00f);
-
-			DrawLocalLine(FVector(MinX, MinY, HoverZ), FVector(MaxX, MinY, HoverZ), HoverLineColor, 3.5f, SDPG_Foreground);
-			DrawLocalLine(FVector(MaxX, MinY, HoverZ), FVector(MaxX, MaxY, HoverZ), HoverLineColor, 3.5f, SDPG_Foreground);
-			DrawLocalLine(FVector(MaxX, MaxY, HoverZ), FVector(MinX, MaxY, HoverZ), HoverLineColor, 3.5f, SDPG_Foreground);
-			DrawLocalLine(FVector(MinX, MaxY, HoverZ), FVector(MinX, MinY, HoverZ), HoverLineColor, 3.5f, SDPG_Foreground);
-		}
+		DrawGridCellOutline(
+			HoveredGridCoord.GetValue(),
+			FLinearColor(0.00f, 0.45f, 1.00f),
+			3.5f,
+			1.0);
 	}
 }
 
@@ -344,6 +377,42 @@ bool UE2GridEdMode::InputDelta(
 
 bool UE2GridEdMode::HandleClick(FEditorViewportClient* InViewportClient, HHitProxy* HitProxy, const FViewportClick& Click)
 {
+	const bool bClickedWidget = HitProxy && HitProxy->IsA(HWidgetAxis::StaticGetType());
+	if (!bClickedWidget &&
+		IsGridPageActive() &&
+		IsToolActive(EE2GridEdModeTool::Edit) &&
+		Click.GetKey() == EKeys::LeftMouseButton &&
+		HoveredGridCoord.IsSet() &&
+		ActiveGridManager.IsValid())
+	{
+		const FIntPoint Coord = HoveredGridCoord.GetValue();
+		FE2GridCoord GridCoord;
+		GridCoord.X = Coord.X;
+		GridCoord.Y = Coord.Y;
+		GridCoord.Layer = 0;
+
+		FE2GridRuntimeData GridData;
+		if (ActiveGridManager->TryGetGridData(GridCoord, GridData))
+		{
+			SelectedGridCoord = Coord;
+			GridSettings->LoadFrom(GridData);
+		}
+		else
+		{
+			ClearSelectedGrid();
+		}
+
+		if (Toolkit.IsValid())
+		{
+			StaticCastSharedPtr<FE2GridEdModeToolkit>(Toolkit)->RefreshSettings();
+		}
+		if (GEditor)
+		{
+			GEditor->RedrawAllViewports(false);
+		}
+		return true;
+	}
+
 	return Super::HandleClick(InViewportClient, HitProxy, Click);
 }
 
@@ -427,6 +496,15 @@ FTransform UE2GridEdMode::GetPreviewTransform() const
 		: FTransform::Identity;
 }
 
+void UE2GridEdMode::ClearSelectedGrid()
+{
+	SelectedGridCoord.Reset();
+	if (GridSettings)
+	{
+		GridSettings->Reset();
+	}
+}
+
 TMap<FName, TArray<TSharedPtr<FUICommandInfo>>> UE2GridEdMode::GetModeCommands() const
 {
 	return Super::GetModeCommands();
@@ -496,6 +574,7 @@ void UE2GridEdMode::SetActivePage(EE2GridEdModePage InPage)
 	{
 		ActivePage = InPage;
 		HoveredGridCoord.Reset();
+		ClearSelectedGrid();
 		if (GEditor)
 		{
 			GEditor->RedrawAllViewports(false);
@@ -521,6 +600,7 @@ void UE2GridEdMode::SetActiveTool(EE2GridEdModeTool InTool)
 
 	ActiveTool = InTool;
 	bSettingsDirty = false;
+	ClearSelectedGrid();
 	RefreshGridManagers();
 }
 
@@ -602,6 +682,10 @@ void UE2GridEdMode::RefreshGridManagers()
 
 	const bool bTargetChanged = ActiveGridManager.Get() != NewGridManager;
 	ActiveGridManager = NewGridManager;
+	if (bTargetChanged || !NewGridManager)
+	{
+		ClearSelectedGrid();
+	}
 	if (Settings && NewGridManager && (bTargetChanged || !bSettingsDirty))
 	{
 		Settings->LoadFromGridManager(*NewGridManager);
@@ -640,6 +724,7 @@ void UE2GridEdMode::SetActiveGridManager(AE2GridManager* InGridManager)
 		ActiveTool = EE2GridEdModeTool::Edit;
 	}
 	HoveredGridCoord.Reset();
+	ClearSelectedGrid();
 	ActiveGridManager = InGridManager;
 	bSettingsDirty = false;
 	if (Settings)
@@ -783,6 +868,7 @@ bool UE2GridEdMode::CommitSettings()
 	if (bGridChanged)
 	{
 		GridManager->Generate();
+		ClearSelectedGrid();
 	}
 
 	GridManager->MarkPackageDirty();

@@ -5,6 +5,7 @@
 #include "E2GridEdMode.generated.h"
 
 class UE2GridEdModeSettings;
+class UE2GridEdModeGridSettings;
 class AE2GridManager;
 class AActor;
 
@@ -53,8 +54,10 @@ public:
 	virtual TMap<FName, TArray<TSharedPtr<FUICommandInfo>>> GetModeCommands() const override;
 
 	UE2GridEdModeSettings* GetSettings() const { return Settings; }
+	UE2GridEdModeGridSettings* GetGridSettings() const { return GridSettings; }
 	const TArray<TWeakObjectPtr<AE2GridManager>>& GetGridManagers() const { return GridManagers; }
 	AE2GridManager* GetActiveGridManager() const { return ActiveGridManager.Get(); }
+	bool HasSelectedGrid() const { return SelectedGridCoord.IsSet(); }
 	EE2GridEdModeTool GetActiveTool() const { return ActiveTool; }
 	bool IsToolActive(EE2GridEdModeTool InTool) const { return ActiveTool == InTool; }
 	bool CanActivateTool(EE2GridEdModeTool InTool) const;
@@ -88,6 +91,7 @@ protected:
 	bool CanShowPreview() const;
 	bool CanUseTransformWidget() const;
 	FTransform GetPreviewTransform() const;
+	void ClearSelectedGrid();
 	void HandleLevelActorAdded(AActor* InActor);
 	void HandleLevelActorDeleted(AActor* InActor);
 
@@ -99,6 +103,9 @@ protected:
 	UPROPERTY(Transient)
 	TObjectPtr<UE2GridEdModeSettings> Settings;
 
+	UPROPERTY(Transient)
+	TObjectPtr<UE2GridEdModeGridSettings> GridSettings;
+
 	TArray<TWeakObjectPtr<AE2GridManager>> GridManagers;
 
 	TWeakObjectPtr<AE2GridManager> ActiveGridManager;
@@ -106,6 +113,7 @@ protected:
 	EE2GridEdModePage ActivePage = EE2GridEdModePage::Grid;
 	EE2GridEdModeTool ActiveTool = EE2GridEdModeTool::New;
 	TOptional<FIntPoint> HoveredGridCoord;
+	TOptional<FIntPoint> SelectedGridCoord;
 	bool bSettingsDirty = false;
 
 	FDelegateHandle PaletteChangedHandle;

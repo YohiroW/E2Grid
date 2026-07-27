@@ -40,11 +40,17 @@ public:
 	int32 GetGridKey(const FE2GridCoord& InCoord) const;
 	
 	UFUNCTION(BlueprintCallable)
-	FE2GridRuntimeData GetGridData(const int32 InGridKey) const;
+	FE2GridRuntimeData GetGridDataByKey(const int32 InGridKey) const;
+
+	UFUNCTION(BlueprintCallable)
+	bool TryGetGridData(const FE2GridCoord& InCoord, FE2GridRuntimeData& OutGridData) const;
 	
 	// TODO: Move to grid coordinates utils
 	UFUNCTION(BlueprintCallable)
-	FE2GridCoord GetCoord(const int32 InGridKey);
+	FE2GridCoord GetCoordByKey(const int32 InGridKey);
+	
+	UFUNCTION(BlueprintCallable)
+	FE2GridCoord GetCoord(const int32& X, const int32& Y, const int32 Layer = 0);
 	
 	// UFUNCTION(BlueprintCallable)
 	// FE2GridCoord GetCoordByWorldPosition(const FVector& InWorldPos);

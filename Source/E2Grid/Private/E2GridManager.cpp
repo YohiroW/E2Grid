@@ -85,15 +85,41 @@ int32 AE2GridManager::GetGridKey(const FE2GridCoord& InCoord) const
 	return InCoord.X + InCoord.Y * GridDimension.X;
 }
 
-FE2GridRuntimeData AE2GridManager::GetGridData(const int32 InGridKey) const
+FE2GridRuntimeData AE2GridManager::GetGridDataByKey(const int32 InGridKey) const
 {
 	return IsValidGridKey(InGridKey) ? GridMap[InGridKey] : FE2GridRuntimeData();
 }
 
-FE2GridCoord AE2GridManager::GetCoord(const int32 InGridKey)
+bool AE2GridManager::TryGetGridData(
+	const FE2GridCoord& InCoord,
+	FE2GridRuntimeData& OutGridData) const
 {
-	const FE2GridRuntimeData GridData = GetGridData(InGridKey);
+	if (!IsValidGridCoord(InCoord))
+	{
+		OutGridData = FE2GridRuntimeData();
+		return false;
+	}
+
+	const int32 GridKey = GetGridKey(InCoord);
+	if (!IsValidGridKey(GridKey))
+	{
+		OutGridData = FE2GridRuntimeData();
+		return false;
+	}
+
+	OutGridData = GridMap[GridKey];
+	return true;
+}
+
+FE2GridCoord AE2GridManager::GetCoordByKey(const int32 InGridKey)
+{
+	const FE2GridRuntimeData GridData = GetGridDataByKey(InGridKey);
 	return GridData.GridKey != INVALID_GRID_KEY ? GridData.Coord : FE2GridCoord::INVALID_COORD;
+}
+
+FE2GridCoord AE2GridManager::GetCoord(const int32& X, const int32& Y, const int32 Layer)
+{
+	return FE2GridCoord(X, Y, Layer);
 }
 
 FVector AE2GridManager::GetWorldPosition(const FVector& InOrigin, const FE2GridCoord& InCoord)
