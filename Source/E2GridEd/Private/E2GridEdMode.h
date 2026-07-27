@@ -40,6 +40,8 @@ public:
 	virtual void Render(const FSceneView* View, FViewport* Viewport, FPrimitiveDrawInterface* PDI) override;
 	virtual bool InputDelta(FEditorViewportClient* InViewportClient, FViewport* InViewport, FVector& InDrag, FRotator& InRot, FVector& InScale) override;
 	virtual bool HandleClick(FEditorViewportClient* InViewportClient, HHitProxy* HitProxy, const FViewportClick& Click) override;
+	virtual bool MouseMove(FEditorViewportClient* ViewportClient, FViewport* Viewport, int32 X, int32 Y) override;
+	virtual bool MouseLeave(FEditorViewportClient* ViewportClient, FViewport* Viewport) override;
 	virtual bool ShouldDrawWidget() const override;
 	virtual bool UsesTransformWidget() const override;
 	virtual bool UsesTransformWidget(UE::Widget::EWidgetMode CheckMode) const override;
@@ -83,7 +85,9 @@ protected:
 	// end UEdMode Interface
 
 	bool IsGridPageActive() const;
+	bool CanShowPreview() const;
 	bool CanUseTransformWidget() const;
+	FTransform GetPreviewTransform() const;
 	void HandleLevelActorAdded(AActor* InActor);
 	void HandleLevelActorDeleted(AActor* InActor);
 
@@ -101,6 +105,7 @@ protected:
 
 	EE2GridEdModePage ActivePage = EE2GridEdModePage::Grid;
 	EE2GridEdModeTool ActiveTool = EE2GridEdModeTool::New;
+	TOptional<FIntPoint> HoveredGridCoord;
 	bool bSettingsDirty = false;
 
 	FDelegateHandle PaletteChangedHandle;

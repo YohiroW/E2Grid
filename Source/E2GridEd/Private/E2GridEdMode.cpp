@@ -123,6 +123,7 @@ void UE2GridEdMode::Exit()
 	LevelActorDeletedHandle.Reset();
 	GridManagers.Reset();
 	ActiveGridManager.Reset();
+	HoveredGridCoord.Reset();
 	bSettingsDirty = false;
 
 	// ModeSettings->DefaultPalette = Toolkit->GetCurrentPalette();
@@ -169,7 +170,7 @@ void UE2GridEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimiti
 {
 	Super::Render(View, Viewport, PDI);
 
-	if (!IsGridPageActive() || !Settings || !Settings->bShowPreview || !Settings->IsValid())
+	if (!CanShowPreview())
 	{
 		return;
 	}
@@ -179,10 +180,7 @@ void UE2GridEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimiti
 	const double GridSize = static_cast<double>(Settings->GridSize);
 	const double HalfWidth = static_cast<double>(Width) * GridSize * 0.5;
 	const double HalfHeight = static_cast<double>(Height) * GridSize * 0.5;
-	const FVector PreviewScale = ActiveGridManager.IsValid()
-		? ActiveGridManager->GetActorScale3D()
-		: FVector::OneVector;
-	const FTransform PreviewTransform(Settings->Rotation, Settings->Location, PreviewScale);
+	const FTransform PreviewTransform = GetPreviewTransform();
 	const FLinearColor CornerLineColor(1.00f, 0.45f, 0.00f);
 	const FLinearColor OuterLineColor(1.00f, 0.85f, 0.00f);
 	const FLinearColor InnerLineColor(0.05f, 0.65f, 0.10f);
@@ -243,6 +241,84 @@ void UE2GridEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimiti
 	DrawBorder(FVector(HalfWidth, -HalfHeight, 0.0), FVector(HalfWidth, HalfHeight, 0.0));
 	DrawBorder(FVector(HalfWidth, HalfHeight, 0.0), FVector(-HalfWidth, HalfHeight, 0.0));
 	DrawBorder(FVector(-HalfWidth, HalfHeight, 0.0), FVector(-HalfWidth, -HalfHeight, 0.0));
+
+	if (HoveredGridCoord.IsSet())
+	{
+		const FIntPoint Coord = HoveredGridCoord.GetValue();
+		if (Coord.X >= 0 && Coord.X < Width && Coord.Y >= 0 && Coord.Y < Height)
+		{
+			const double MinX = -HalfWidth + static_cast<double>(Coord.X) * GridSize;
+			const double MinY = -HalfHeight + static_cast<double>(Coord.Y) * GridSize;
+			const double MaxX = MinX + GridSize;
+			const double MaxY = MinY + GridSize;
+			const double HoverZ = 0.5;
+			const FLinearColor HoverLineColor(0.00f, 0.45f, 1.00f);
+
+			DrawLocalLine(FVector(MinX, MinY, HoverZ), FVector(MaxX, MinY, HoverZ), HoverLineColor, 3.5f, SDPG_Foreground);
+			DrawLocalLine(FVector(MaxX, MinY, HoverZ), FVector(MaxX, MaxY, HoverZ), HoverLineColor, 3.5f, SDPG_Foreground);
+			DrawLocalLine(FVector(MaxX, MaxY, HoverZ), FVector(MinX, MaxY, HoverZ), HoverLineColor, 3.5f, SDPG_Foreground);
+			DrawLocalLine(FVector(MinX, MaxY, HoverZ), FVector(MinX, MinY, HoverZ), HoverLineColor, 3.5f, SDPG_Foreground);
+		}
+	}
+}
+
+bool UE2GridEdMode::MouseMove(
+	FEditorViewportClient* ViewportClient,
+	FViewport* Viewport,
+	int32 X,
+	int32 Y)
+{
+	TOptional<FIntPoint> NewHoveredGridCoord;
+	if (CanShowPreview() && ViewportClient)
+	{
+		const FViewportCursorLocation MouseRay = ViewportClient->GetCursorWorldLocationFromMousePos();
+		const FTransform PreviewTransform = GetPreviewTransform();
+		const FVector PlaneOrigin = PreviewTransform.GetLocation();
+		const FVector PlaneNormal = PreviewTransform.GetRotation().RotateVector(FVector::UpVector);
+		const double RayPlaneDot = FVector::DotProduct(MouseRay.GetDirection(), PlaneNormal);
+		if (!FMath::IsNearlyZero(RayPlaneDot))
+		{
+			const double HitDistance = FVector::DotProduct(
+				PlaneOrigin - MouseRay.GetOrigin(),
+				PlaneNormal) / RayPlaneDot;
+			if (HitDistance >= 0.0)
+			{
+				const FVector WorldHit = MouseRay.GetOrigin() + MouseRay.GetDirection() * HitDistance;
+				const FVector LocalHit = PreviewTransform.InverseTransformPosition(WorldHit);
+				const double GridSize = static_cast<double>(Settings->GridSize);
+				const double HalfWidth = static_cast<double>(Settings->GridDimension.X) * GridSize * 0.5;
+				const double HalfHeight = static_cast<double>(Settings->GridDimension.Y) * GridSize * 0.5;
+				const FIntPoint Coord(
+					FMath::FloorToInt((LocalHit.X + HalfWidth) / GridSize),
+					FMath::FloorToInt((LocalHit.Y + HalfHeight) / GridSize));
+				if (Coord.X >= 0 && Coord.X < Settings->GridDimension.X &&
+					Coord.Y >= 0 && Coord.Y < Settings->GridDimension.Y)
+				{
+					NewHoveredGridCoord = Coord;
+				}
+			}
+		}
+	}
+
+	const bool bHoverChanged = HoveredGridCoord.IsSet() != NewHoveredGridCoord.IsSet() ||
+		(HoveredGridCoord.IsSet() && HoveredGridCoord.GetValue() != NewHoveredGridCoord.GetValue());
+	if (bHoverChanged)
+	{
+		HoveredGridCoord = NewHoveredGridCoord;
+		ViewportClient->Invalidate(false, false);
+	}
+
+	return Super::MouseMove(ViewportClient, Viewport, X, Y);
+}
+
+bool UE2GridEdMode::MouseLeave(FEditorViewportClient* ViewportClient, FViewport* Viewport)
+{
+	if (HoveredGridCoord.IsSet())
+	{
+		HoveredGridCoord.Reset();
+		ViewportClient->Invalidate(false, false);
+	}
+	return Super::MouseLeave(ViewportClient, Viewport);
 }
 
 bool UE2GridEdMode::InputDelta(
@@ -336,6 +412,21 @@ bool UE2GridEdMode::CanUseTransformWidget() const
 	return IsGridPageActive() && Settings != nullptr;
 }
 
+bool UE2GridEdMode::CanShowPreview() const
+{
+	return IsGridPageActive() && Settings && Settings->bShowPreview && Settings->IsValid();
+}
+
+FTransform UE2GridEdMode::GetPreviewTransform() const
+{
+	const FVector PreviewScale = ActiveGridManager.IsValid()
+		? ActiveGridManager->GetActorScale3D()
+		: FVector::OneVector;
+	return Settings
+		? FTransform(Settings->Rotation, Settings->Location, PreviewScale)
+		: FTransform::Identity;
+}
+
 TMap<FName, TArray<TSharedPtr<FUICommandInfo>>> UE2GridEdMode::GetModeCommands() const
 {
 	return Super::GetModeCommands();
@@ -404,6 +495,7 @@ void UE2GridEdMode::SetActivePage(EE2GridEdModePage InPage)
 	if (ActivePage != InPage)
 	{
 		ActivePage = InPage;
+		HoveredGridCoord.Reset();
 		if (GEditor)
 		{
 			GEditor->RedrawAllViewports(false);
@@ -434,6 +526,7 @@ void UE2GridEdMode::SetActiveTool(EE2GridEdModeTool InTool)
 
 void UE2GridEdMode::NotifySettingsChanged(bool bRefreshDetails)
 {
+	HoveredGridCoord.Reset();
 	bSettingsDirty = IsCreatingGridManager() || (Settings && ActiveGridManager.IsValid() &&
 		!Settings->MatchesGridManager(*ActiveGridManager));
 
@@ -450,6 +543,7 @@ void UE2GridEdMode::NotifySettingsChanged(bool bRefreshDetails)
 
 void UE2GridEdMode::RefreshGridManagers()
 {
+	HoveredGridCoord.Reset();
 	const bool bKeepCreateDraft = IsCreatingGridManager() && bSettingsDirty;
 	AE2GridManager* PreviousGridManager = ActiveGridManager.Get();
 	GridManagers.Reset();
@@ -545,6 +639,7 @@ void UE2GridEdMode::SetActiveGridManager(AE2GridManager* InGridManager)
 	{
 		ActiveTool = EE2GridEdModeTool::Edit;
 	}
+	HoveredGridCoord.Reset();
 	ActiveGridManager = InGridManager;
 	bSettingsDirty = false;
 	if (Settings)
@@ -692,6 +787,7 @@ bool UE2GridEdMode::CommitSettings()
 
 	GridManager->MarkPackageDirty();
 	Settings->LoadFromGridManager(*GridManager);
+	HoveredGridCoord.Reset();
 	bSettingsDirty = false;
 
 	if (Toolkit.IsValid())
@@ -707,6 +803,7 @@ bool UE2GridEdMode::CommitSettings()
 
 void UE2GridEdMode::RevertSettings()
 {
+	HoveredGridCoord.Reset();
 	if (Settings)
 	{
 		if (ActiveGridManager.IsValid())
