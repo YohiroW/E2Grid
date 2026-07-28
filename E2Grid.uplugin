@@ -24,6 +24,11 @@
 			"Name": "E2GridEd",
 			"Type": "Editor",
 			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "E2GridGame",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
 		}
 	]
 }
