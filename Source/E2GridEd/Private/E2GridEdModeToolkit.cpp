@@ -29,12 +29,14 @@ void FE2GridEdModeToolkit::Init(const TSharedPtr<IToolkitHost>& InitToolkitHost,
 	UE2GridEdMode* E2GridEdMode = CastChecked<UE2GridEdMode>(InOwningMode.Get());
 	TSharedRef<FUICommandList> CommandList = GetToolkitCommands();
 	const FE2GridEdModeCommands& Commands = FE2GridEdModeCommands::Get();
+	
 	CommandList->MapAction(
 		Commands.NewTool,
 		FUIAction(
 			FExecuteAction::CreateSP(this, &FE2GridEdModeToolkit::OnChangeTool, EE2GridEdModeTool::New),
 			FCanExecuteAction::CreateSP(this, &FE2GridEdModeToolkit::IsToolEnabled, EE2GridEdModeTool::New),
 			FIsActionChecked::CreateSP(this, &FE2GridEdModeToolkit::IsToolActive, EE2GridEdModeTool::New)));
+	
 	CommandList->MapAction(
 		Commands.EditTool,
 		FUIAction(

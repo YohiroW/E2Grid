@@ -10,7 +10,7 @@ AE2GridManager::AE2GridManager()
 	{
 		GridVisualizeComponent = CreateDefaultSubobject<UE2GridVisualizeComponent>(TEXT("GridVisualizeComponent"));
 		GridVisualizeComponent->SetupAttachment(RootComponent);
-		// GridVisualizeComponent->SetVisibility(bShowVisualizedGrid);
+		GridVisualizeComponent->SetVisibility(bShowVisualizedGrid);
 	}
 	
 	GridDimension = FIntPoint(10, 10);
@@ -90,9 +90,7 @@ FE2GridRuntimeData AE2GridManager::GetGridDataByKey(const int32 InGridKey) const
 	return IsValidGridKey(InGridKey) ? GridMap[InGridKey] : FE2GridRuntimeData();
 }
 
-bool AE2GridManager::TryGetGridData(
-	const FE2GridCoord& InCoord,
-	FE2GridRuntimeData& OutGridData) const
+bool AE2GridManager::TryGetGridData(const FE2GridCoord& InCoord, FE2GridRuntimeData& OutGridData) const
 {
 	if (!IsValidGridCoord(InCoord))
 	{

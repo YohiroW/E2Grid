@@ -58,12 +58,11 @@ public:
 	{
 	}
 
+	bool IsValid() const { return GridKey != INVALID_GRID_KEY; }	
+	
 	void SetWalkable(const bool bInIsWalkable);
-	
 	bool IsWalkable() const;
-	
 	void SetCanWalkThrough(const bool bInCanWalkThrough);
-	
 	bool CanWalkThrough() const;	
 	
 protected:

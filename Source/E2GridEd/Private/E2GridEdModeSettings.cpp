@@ -1,5 +1,4 @@
 #include "E2GridEdModeSettings.h"
-
 #include "E2GridManager.h"
 
 UE2GridEdModeSettings::UE2GridEdModeSettings()
@@ -9,6 +8,7 @@ UE2GridEdModeSettings::UE2GridEdModeSettings()
 
 void UE2GridEdModeSettings::ResetToDefaults()
 {
+	GridManagerClass = AE2GridManager::StaticClass();
 	const AE2GridManager* DefaultManager = GetDefault<AE2GridManager>();
 	GridDimension = DefaultManager->GridDimension;
 	GridSize = DefaultManager->GridSize;
