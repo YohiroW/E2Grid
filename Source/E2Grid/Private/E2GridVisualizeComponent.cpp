@@ -12,8 +12,6 @@ UE2GridVisualizeComponent::UE2GridVisualizeComponent()
 		SetStaticMesh(DefaultMesh.Object);
 	}
 #endif
-		
-
 }
 
 void UE2GridVisualizeComponent::BuildGridInstancedMeshes()
@@ -32,6 +30,7 @@ void UE2GridVisualizeComponent::BuildGridInstancedMeshes()
 		MeshSize.X > UE_SMALL_NUMBER ? GridOwner->GridSize / MeshSize.X : 1.0,
 		MeshSize.Y > UE_SMALL_NUMBER ? GridOwner->GridSize / MeshSize.Y : 1.0,
 		1.0);
+	
 	const FVector Scale = GridOwner->GetActorScale3D() * GridScale;
 	GridOwner->ForEachGridData([&](const FE2GridRuntimeData&, const FVector& InWorldPos) -> bool
 	{
@@ -49,8 +48,6 @@ void UE2GridVisualizeComponent::BuildGridInstancedMeshes()
 void UE2GridVisualizeComponent::BeginPlay()
 {
 	Super::BeginPlay();
-
-	
 }
 
 void UE2GridVisualizeComponent::OnRegister()
@@ -58,7 +55,7 @@ void UE2GridVisualizeComponent::OnRegister()
 	Super::OnRegister();
 	
 	AE2GridManager* GridManager = Cast<AE2GridManager>(GetOwner());
-	if (!ensureMsgf(GridManager, TEXT("%s must owned by a AGridManager"), *GetName()))
+	if (!ensureMsgf(GridManager, TEXT("OnRegister: %s must owned by a AGridManager"), *GetName()))
 	{
 		return;
 	}
@@ -71,16 +68,12 @@ void UE2GridVisualizeComponent::PostLoad()
 	Super::PostLoad();
 		
 	AE2GridManager* GridManager = Cast<AE2GridManager>(GetOwner());
-	if (!ensureMsgf(GridManager, TEXT("%s must owned by a AGridManager"), *GetName()))
+	if (!ensureMsgf(GridManager, TEXT("PostLoad: %s must owned by a AGridManager"), *GetName()))
 	{
 		return;
 	}
 	
 	GridOwner = GridManager; 
-}
-
-void UE2GridVisualizeComponent::ShowGrids()
-{
 }
 
 void UE2GridVisualizeComponent::TickComponent(float DeltaTime, ELevelTick TickType,

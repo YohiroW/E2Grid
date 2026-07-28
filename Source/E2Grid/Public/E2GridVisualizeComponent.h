@@ -25,7 +25,6 @@ public:
 	TMap<FName, UMaterialInterface*> VisualMap;
 };
 
-
 UCLASS()
 class E2GRID_API UE2GridVisualizeComponent : public UInstancedStaticMeshComponent
 {
@@ -38,18 +37,13 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor)
 	void BuildGridInstancedMeshes();
 	
-	UFUNCTION(BlueprintCallable)
-	void ShowGrids(); 
-
 protected:
 	virtual void PostLoad() override;
 	virtual void BeginPlay() override;
 	virtual void OnRegister() override;
 	
-	
 public:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
-	
 	
 // ------------------------------------------------------------
 	
