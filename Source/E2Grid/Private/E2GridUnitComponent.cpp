@@ -1,36 +1,50 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
-
 #include "E2GridUnitComponent.h"
 
+#include "E2GridSubsystem.h"
+#include "Engine/World.h"
 
-// Sets default values for this component's properties
 UE2GridUnitComponent::UE2GridUnitComponent()
 {
-	// Set this component to be initialized when the game starts, and to be ticked every frame.  You can turn these features
-	// off to improve performance if you don't need them.
-	PrimaryComponentTick.bCanEverTick = true;
-
-	// ...
+	PrimaryComponentTick.bCanEverTick = false;
 }
 
-
-// Called when the game starts
 void UE2GridUnitComponent::BeginPlay()
 {
 	Super::BeginPlay();
-
-	// ...
-	
+	RequestRegistration();
 }
 
-
-// Called every frame
-void UE2GridUnitComponent::TickComponent(float DeltaTime, ELevelTick TickType,
-                                         FActorComponentTickFunction* ThisTickFunction)
+void UE2GridUnitComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-
-	// ...
+	if (UWorld* World = GetWorld())
+	{
+		if (UE2GridSubsystem* GridSubsystem = World->GetSubsystem<UE2GridSubsystem>())
+		{
+			GridSubsystem->UnregisterUnit(this);
+		}
+	}
+	Super::EndPlay(EndPlayReason);
 }
 
+EE2GridRegistrationStatus UE2GridUnitComponent::RequestRegistration()
+{
+	if (UE2GridSubsystem* GridSubsystem = GetWorld()->GetSubsystem<UE2GridSubsystem>())
+	{
+		return GridSubsystem->RegisterUnit(this);
+	}
+	return EE2GridRegistrationStatus::PendingManager;
+}
+
+void UE2GridUnitComponent::SetPlacementState(
+	bool bInRegistered,
+	int32 InCellKey,
+	EE2GridRegistrationStatus Status)
+{
+	const bool bChanged = bRegistered != bInRegistered || CurrentCellKey != InCellKey;
+	bRegistered = bInRegistered;
+	CurrentCellKey = InCellKey;
+	if (bChanged || Status != EE2GridRegistrationStatus::AlreadyRegistered)
+	{
+		OnRegistrationChanged.Broadcast(bRegistered, Status);
+	}
+}

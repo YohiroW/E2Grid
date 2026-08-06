@@ -3,6 +3,7 @@
 #include "E2GridEdModeGridSettings.h"
 #include "E2GridEdModeSettings.h"
 #include "E2GridEdModeToolkit.h"
+#include "E2GridBuilder.h"
 #include "E2GridManager.h"
 #include "Components/SceneComponent.h"
 #include "Editor.h"
@@ -13,6 +14,8 @@
 #include "EngineUtils.h"
 #include "Math/RotationMatrix.h"
 #include "Misc/MessageDialog.h"
+#include "Framework/Notifications/NotificationManager.h"
+#include "Widgets/Notifications/SNotificationList.h"
 #include "PrimitiveDrawInterface.h"
 #include "ScopedTransaction.h"
 #include "SceneManagement.h"
@@ -391,11 +394,12 @@ bool UE2GridEdMode::HandleClick(FEditorViewportClient* InViewportClient, HHitPro
 		GridCoord.Y = Coord.Y;
 		GridCoord.Layer = 0;
 
-		FE2GridRuntimeData GridData;
-		if (ActiveGridManager->TryGetGridData(GridCoord, GridData))
+		const int32 CellKey = ActiveGridManager->GetGridKey(GridCoord);
+		FE2GridCellData CellData;
+		if (ActiveGridManager->TryGetCellData(CellKey, CellData))
 		{
 			SelectedGridCoord = Coord;
-			GridSettings->LoadFrom(GridData);
+			GridSettings->LoadFrom(CellKey, CellData);
 		}
 		else
 		{
@@ -808,8 +812,6 @@ bool UE2GridEdMode::CommitSettings()
 	{
 		UWorld* World = GetWorld();
 		const FTransform SpawnTransform(Settings->Rotation, Settings->Location);
-		const FIntPoint GridDimension = Settings->GridDimension;
-		const int32 GridSize = Settings->GridSize;
 		FScopedTransaction Transaction(LOCTEXT("CreateGridManagerTransaction", "Create E2 Grid Manager"));
 
 		AE2GridManager* GridManager = Cast<AE2GridManager>(GEditor->AddActor(
@@ -826,9 +828,6 @@ bool UE2GridEdMode::CommitSettings()
 		}
 
 		GridManager->Modify();
-		GridManager->GridDimension = GridDimension;
-		GridManager->GridSize = GridSize;
-		GridManager->Generate();
 		GridManager->MarkPackageDirty();
 
 		GEditor->SelectNone(false, true, false);
@@ -844,9 +843,6 @@ bool UE2GridEdMode::CommitSettings()
 	AE2GridManager* GridManager = ActiveGridManager.Get();
 	const bool bTransformChanged = !Settings->Location.Equals(GridManager->GetActorLocation()) ||
 		!Settings->Rotation.Equals(GridManager->GetActorRotation());
-	const bool bGridChanged = Settings->GridDimension != GridManager->GridDimension ||
-		Settings->GridSize != GridManager->GridSize;
-
 	FScopedTransaction Transaction(LOCTEXT("ApplyGridManagerSettingsTransaction", "Apply E2 Grid Manager Settings"));
 	GridManager->Modify();
 	if (USceneComponent* RootComponent = GridManager->GetRootComponent())
@@ -863,16 +859,7 @@ bool UE2GridEdMode::CommitSettings()
 		GridManager->SetActorTransform(NewTransform, false, nullptr, ETeleportType::TeleportPhysics);
 	}
 
-	GridManager->GridDimension = Settings->GridDimension;
-	GridManager->GridSize = Settings->GridSize;
-	if (bGridChanged)
-	{
-		GridManager->Generate();
-		ClearSelectedGrid();
-	}
-
 	GridManager->MarkPackageDirty();
-	Settings->LoadFromGridManager(*GridManager);
 	HoveredGridCoord.Reset();
 	bSettingsDirty = false;
 
@@ -885,6 +872,54 @@ bool UE2GridEdMode::CommitSettings()
 		GEditor->RedrawAllViewports();
 	}
 	return true;
+}
+
+bool UE2GridEdMode::CanBuildActiveGrid() const
+{
+	return Settings && Settings->IsValid() && ActiveGridManager.IsValid() &&
+		ActiveGridManager->GridMapAsset && ActiveGridManager->BuildSettings.IsValid();
+}
+
+bool UE2GridEdMode::BuildActiveGrid()
+{
+	if (!CanBuildActiveGrid())
+	{
+		LastBuildSummary = TEXT("Build requires a valid manager, target map asset, layout, and build settings.");
+		return false;
+	}
+
+	if (HasPendingSettings() && !CommitSettings())
+	{
+		LastBuildSummary = TEXT("Build cancelled because draft settings could not be committed.");
+		return false;
+	}
+
+	FScopedTransaction Transaction(LOCTEXT("BuildGridMapTransaction", "Build E2 Grid Map Asset"));
+	const FE2GridBuildReport Report = FE2GridBuilder::Build(
+		*ActiveGridManager.Get(),
+		Settings->GridDimension,
+		static_cast<float>(Settings->GridSize));
+	LastBuildSummary = Report.ToSummary();
+	if (!Report.bSucceeded)
+	{
+		Transaction.Cancel();
+	}
+	else
+	{
+		Settings->LoadFromGridManager(*ActiveGridManager.Get());
+		bSettingsDirty = false;
+	}
+
+	FNotificationInfo Notification(FText::FromString(LastBuildSummary));
+	Notification.ExpireDuration = Report.bSucceeded ? 5.0f : 8.0f;
+	Notification.Image = FAppStyle::GetBrush(
+		Report.bSucceeded ? "Icons.SuccessWithColor" : "Icons.ErrorWithColor");
+	FSlateNotificationManager::Get().AddNotification(Notification);
+	if (GEditor)
+	{
+		GEditor->RedrawAllViewports();
+	}
+	return Report.bSucceeded;
 }
 
 void UE2GridEdMode::RevertSettings()

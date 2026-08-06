@@ -1,244 +1,177 @@
 #include "E2GridManager.h"
+
+#include "E2GridMapAsset.h"
+#include "E2GridSubsystem.h"
 #include "E2GridVisualizeComponent.h"
-#include "DrawDebugHelpers.h"
+#include "Components/SceneComponent.h"
+#include "Engine/World.h"
 
 AE2GridManager::AE2GridManager()
 {
-	USceneComponent* SceneComponent = CreateDefaultSubobject<USceneComponent>(TEXT("RootComponent"));
-	RootComponent = SceneComponent;
-	
+	PrimaryActorTick.bCanEverTick = false;
+
+	USceneComponent* SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
+	SetRootComponent(SceneRoot);
+
+	GridVisualizeComponent = CreateDefaultSubobject<UE2GridVisualizeComponent>(TEXT("GridVisualization"));
+	GridVisualizeComponent->SetupAttachment(SceneRoot);
+}
+
+void AE2GridManager::BeginPlay()
+{
+	Super::BeginPlay();
+
+	if (UE2GridSubsystem* GridSubsystem = GetWorld()->GetSubsystem<UE2GridSubsystem>())
 	{
-		GridVisualizeComponent = CreateDefaultSubobject<UE2GridVisualizeComponent>(TEXT("GridVisualizeComponent"));
-		GridVisualizeComponent->SetupAttachment(RootComponent);
-		GridVisualizeComponent->SetVisibility(bShowVisualizedGrid);
+		GridSubsystem->RegisterManager(this);
 	}
-	
-	GridDimension = FIntPoint(10, 10);
 }
 
-void AE2GridManager::OnConstruction(const FTransform& Transform)
+void AE2GridManager::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	Super::OnConstruction(Transform);
-	
-	Generate();
-}
-
-void AE2GridManager::Generate()
-{
-	Clear();
-	
-	const int32 Width = GridDimension.X;
-	const int32 Height = GridDimension.Y;
-	const double HalfGridSize = static_cast<double>(GridSize) * 0.5;
-	const int32 GridCount = FMath::Max(Width, 0) * FMath::Max(Height, 0);
-	GridMap.SetNum(GridCount);
-
-	// Grid coordinates identify cell centers. Offset (0, 0) by half of the
-	// center-to-center span so that the actor origin remains at the grid center.
-	BaseOffset = FVector(
-		-static_cast<double>(Width - 1) * HalfGridSize,
-		-static_cast<double>(Height - 1) * HalfGridSize,
-		0.0);
-	
-	for (int32 Y = 0; Y < Height; ++Y)
+	if (UWorld* World = GetWorld())
 	{
-		for (int32 X = 0; X < Width; ++X)
+		if (UE2GridSubsystem* GridSubsystem = World->GetSubsystem<UE2GridSubsystem>())
 		{
-			FE2GridCoord Coord(X , Y);
-			int32 GridKey = X + Y * Width;
-			
-			FE2GridRuntimeData& GridData = GridMap[GridKey];
-			GridData.Coord = Coord;
-			GridData.GridKey = GridKey;
+			GridSubsystem->UnregisterManager(this);
 		}
 	}
-	
-	bool bNotifyVisualChanged = true;
-	if (bNotifyVisualChanged && GridVisualizeComponent)
-	{
-		GridVisualizeComponent->BuildGridInstancedMeshes();
-	}
+
+	Super::EndPlay(EndPlayReason);
 }
 
-void AE2GridManager::Clear()
+const FE2GridMapLayout* AE2GridManager::GetLayout() const
 {
-	GridMap.Empty();
+	return GridMapAsset && GridMapAsset->IsValidMap() ? &GridMapAsset->GetLayout() : nullptr;
 }
 
-bool AE2GridManager::IsValidGridKey(const int32 InGridKey) const
+const TMap<int32, FE2GridCellData>* AE2GridManager::GetCells() const
 {
-	return GridMap.IsValidIndex(InGridKey);
+	return GridMapAsset && GridMapAsset->IsValidMap() ? &GridMapAsset->GetCells() : nullptr;
 }
 
-bool AE2GridManager::IsValidGridCoord(const FE2GridCoord& InCoord) const
+bool AE2GridManager::HasValidGrid() const
 {
-	return InCoord.X >= 0 && InCoord.X < GridDimension.X && InCoord.Y >= 0 && InCoord.Y < GridDimension.Y;
+	return GetLayout() != nullptr;
 }
 
-bool AE2GridManager::IsGridMapEmpty()
+bool AE2GridManager::IsValidGridKey(int32 CellKey) const
 {
-	return GridMap.IsEmpty();
+	return FindCell(CellKey) != nullptr;
 }
 
-int32 AE2GridManager::GetGridKey(const FE2GridCoord& InCoord) const
+bool AE2GridManager::IsValidGridCoord(const FE2GridCoord& Coord) const
 {
-	return InCoord.X + InCoord.Y * GridDimension.X;
+	const FE2GridMapLayout* Layout = GetLayout();
+	return Layout && Layout->IsValidCoord(Coord) && FindCell(Layout->CoordToKey(Coord));
 }
 
-FE2GridRuntimeData AE2GridManager::GetGridDataByKey(const int32 InGridKey) const
+int32 AE2GridManager::GetGridKey(const FE2GridCoord& Coord) const
 {
-	return IsValidGridKey(InGridKey) ? GridMap[InGridKey] : FE2GridRuntimeData();
+	const FE2GridMapLayout* Layout = GetLayout();
+	return Layout ? Layout->CoordToKey(Coord) : INVALID_GRID_KEY;
 }
 
-bool AE2GridManager::TryGetGridData(const FE2GridCoord& InCoord, FE2GridRuntimeData& OutGridData) const
+bool AE2GridManager::GetCoordByKey(int32 CellKey, FE2GridCoord& OutCoord) const
 {
-	if (!IsValidGridCoord(InCoord))
-	{
-		OutGridData = FE2GridRuntimeData();
-		return false;
-	}
-
-	const int32 GridKey = GetGridKey(InCoord);
-	if (!IsValidGridKey(GridKey))
-	{
-		OutGridData = FE2GridRuntimeData();
-		return false;
-	}
-
-	OutGridData = GridMap[GridKey];
-	return true;
-}
-
-FE2GridCoord AE2GridManager::GetCoordByKey(const int32 InGridKey)
-{
-	const FE2GridRuntimeData GridData = GetGridDataByKey(InGridKey);
-	return GridData.GridKey != INVALID_GRID_KEY ? GridData.Coord : FE2GridCoord::INVALID_COORD;
-}
-
-FE2GridCoord AE2GridManager::GetCoord(const int32& X, const int32& Y, const int32 Layer)
-{
-	return FE2GridCoord(X, Y, Layer);
-}
-
-FVector AE2GridManager::GetWorldPosition(const FVector& InOrigin, const FE2GridCoord& InCoord)
-{
-	FVector Position = InOrigin + FVector(InCoord.X * GridSize, InCoord.Y * GridSize, 0.0f);
-	return Position;
-}
-
-FVector AE2GridManager::GetGridLocalPosition(const FE2GridCoord& InCoord) const
-{
-	return BaseOffset + FVector(InCoord.X * GridSize, InCoord.Y * GridSize, 0.0);
-}
-
-FVector AE2GridManager::GetGridWorldPosition(const FE2GridCoord& InCoord) const
-{
-	return GetActorTransform().TransformPosition(GetGridLocalPosition(InCoord));
-}
-
-bool AE2GridManager::GetGridCoord(const FVector& InWorldPos, FE2GridCoord& OutCoord)
-{
-	if (GridSize <= 0)
+	const FE2GridMapLayout* Layout = GetLayout();
+	if (!Layout || !FindCell(CellKey))
 	{
 		OutCoord = FE2GridCoord::INVALID_COORD;
 		return false;
 	}
-
-	const FVector LocalPos = GetActorTransform().InverseTransformPosition(InWorldPos) - BaseOffset;
-	const int32 CoordX = FMath::FloorToInt((LocalPos.X + GridSize * 0.5f) / GridSize);
-	const int32 CoordY = FMath::FloorToInt((LocalPos.Y + GridSize * 0.5f) / GridSize);
-	
-	OutCoord.X = CoordX;
-	OutCoord.Y = CoordY;
-	OutCoord.Layer = 0;
-	
-	return IsValidGridCoord(OutCoord);
+	return Layout->KeyToCoord(CellKey, OutCoord);
 }
 
-// Called when the game starts or when spawned
-void AE2GridManager::BeginPlay()
+bool AE2GridManager::TryGetCellData(int32 CellKey, FE2GridCellData& OutCellData) const
 {
-	Super::BeginPlay();
-}
-
-// Called every frame
-void AE2GridManager::Tick(float DeltaTime)
-{
-	Super::Tick(DeltaTime);
-}
-
-void AE2GridManager::ForEachGridData(
-	TFunctionRef<bool(const FE2GridRuntimeData& InGridData, const FVector& InWorldPosition)> InFunc)
-{
-	for (const FE2GridRuntimeData& GridData : GridMap)
+	if (const FE2GridCellData* Cell = FindCell(CellKey))
 	{
-		const FVector WorldPos = GetGridWorldPosition(GridData.Coord);
-		InFunc(GridData, WorldPos);
+		OutCellData = *Cell;
+		return true;
 	}
+	OutCellData = FE2GridCellData();
+	return false;
 }
 
-// ----------------------------------------------------------------------
-
-#if WITH_EDITOR
-void AE2GridManager::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+const FE2GridCellData* AE2GridManager::FindCell(int32 CellKey) const
 {
-	if (PropertyChangedEvent.Property)
+	return GridMapAsset ? GridMapAsset->FindCell(CellKey) : nullptr;
+}
+
+bool AE2GridManager::WorldToCell(const FVector& WorldPosition, int32& OutCellKey) const
+{
+	const FE2GridMapLayout* Layout = GetLayout();
+	if (!Layout)
 	{
-		if (PropertyChangedEvent.Property->GetFName() == GET_MEMBER_NAME_CHECKED(AE2GridManager, GridDimension) ||
-			PropertyChangedEvent.Property->GetFName() == GET_MEMBER_NAME_CHECKED(AE2GridManager, GridSize) || 
-			PropertyChangedEvent.Property->GetFName() == GET_MEMBER_NAME_CHECKED(AE2GridManager, BaseOffset))
-		{
-			Generate();
-		}
-		
-		if (PropertyChangedEvent.Property->GetFName() == GET_MEMBER_NAME_CHECKED(AE2GridManager, bDrawGridMap))
-		{
-			if (IsGridMapEmpty())
-			{
-				Generate();
-			}
-			DrawGridMap(!bDrawGridMap);
-		}
+		OutCellKey = INVALID_GRID_KEY;
+		return false;
 	}
-	
-	Super::PostEditChangeProperty(PropertyChangedEvent);
+
+	const FVector LocalPosition = GetActorTransform().InverseTransformPosition(WorldPosition) - Layout->LocalOrigin;
+	const FE2GridCoord Coord(
+		FMath::FloorToInt((LocalPosition.X + Layout->CellSize * 0.5f) / Layout->CellSize),
+		FMath::FloorToInt((LocalPosition.Y + Layout->CellSize * 0.5f) / Layout->CellSize));
+	const int32 CandidateKey = Layout->CoordToKey(Coord);
+	if (!FindCell(CandidateKey))
+	{
+		OutCellKey = INVALID_GRID_KEY;
+		return false;
+	}
+
+	OutCellKey = CandidateKey;
+	return true;
 }
 
-void AE2GridManager::PostLoad()
+bool AE2GridManager::CellToWorld(int32 CellKey, FVector& OutWorldPosition) const
 {
-	Super::PostLoad();
-	// Generate();
+	const FE2GridMapLayout* Layout = GetLayout();
+	const FE2GridCellData* Cell = FindCell(CellKey);
+	FE2GridCoord Coord;
+	if (!Layout || !Cell || !Layout->KeyToCoord(CellKey, Coord))
+	{
+		OutWorldPosition = FVector::ZeroVector;
+		return false;
+	}
+
+	OutWorldPosition = GetActorTransform().TransformPosition(
+		Layout->GetCellLocalCenter(Coord, Cell->LocalHeight));
+	return true;
 }
 
-void AE2GridManager::DrawGridMap(bool bClearOnly /*= false*/)
+FVector AE2GridManager::GetCellWorldCenterChecked(int32 CellKey) const
 {
-	UWorld* World = GetWorld();
-	if (!World)
+	FVector Result;
+	check(CellToWorld(CellKey, Result));
+	return Result;
+}
+
+void AE2GridManager::ForEachCell(
+	TFunctionRef<void(int32, const FE2GridCellData&, const FVector&)> Visitor) const
+{
+	const TMap<int32, FE2GridCellData>* Cells = GetCells();
+	if (!Cells)
 	{
 		return;
 	}
-	
-	FlushPersistentDebugLines(World);
-	
-	if (!bClearOnly)
-	{
-		const FQuat GridRotation = GetActorQuat();
-		const FVector GridScale = GetActorScale3D().GetAbs();
-		const FVector BoxExtent(
-			GridSize * 0.5 * GridScale.X,
-			GridSize * 0.5 * GridScale.Y,
-			GridScale.Z);
 
-		for (const FE2GridRuntimeData& GridData : GridMap)
+	for (const TPair<int32, FE2GridCellData>& Pair : *Cells)
+	{
+		FVector WorldCenter;
+		if (CellToWorld(Pair.Key, WorldCenter))
 		{
-			const FE2GridCoord& Coord = GridData.Coord;
-		
-			const FVector WorldPosition = GetGridWorldPosition(Coord);
-			DrawDebugCrosshairs(World, WorldPosition, GridRotation.Rotator(), 10.0f, FColor::Green, true);
-			DrawDebugBox(World, WorldPosition, BoxExtent, GridRotation, FColor::Green, true);
+			Visitor(Pair.Key, Pair.Value, WorldCenter);
 		}
 	}
 }
 
-
-#endif 
+#if WITH_EDITOR
+void AE2GridManager::RefreshVisualization()
+{
+	if (GridVisualizeComponent)
+	{
+		GridVisualizeComponent->SetVisibility(bShowVisualizedGrid);
+		GridVisualizeComponent->BuildGridInstancedMeshes();
+	}
+}
+#endif

@@ -1,4 +1,5 @@
 #include "E2GridEdModeSettings.h"
+
 #include "E2GridManager.h"
 
 UE2GridEdModeSettings::UE2GridEdModeSettings()
@@ -9,9 +10,8 @@ UE2GridEdModeSettings::UE2GridEdModeSettings()
 void UE2GridEdModeSettings::ResetToDefaults()
 {
 	GridManagerClass = AE2GridManager::StaticClass();
-	const AE2GridManager* DefaultManager = GetDefault<AE2GridManager>();
-	GridDimension = DefaultManager->GridDimension;
-	GridSize = DefaultManager->GridSize;
+	GridDimension = FIntPoint(10, 10);
+	GridSize = 50;
 	Location = FVector::ZeroVector;
 	Rotation = FRotator::ZeroRotator;
 }
@@ -20,16 +20,27 @@ void UE2GridEdModeSettings::LoadFromGridManager(const AE2GridManager& InGridMana
 {
 	Location = InGridManager.GetActorLocation();
 	Rotation = InGridManager.GetActorRotation();
-	GridDimension = InGridManager.GridDimension;
-	GridSize = InGridManager.GridSize;
+	if (const FE2GridMapLayout* Layout = InGridManager.GetLayout())
+	{
+		GridDimension = Layout->GridDimension;
+		GridSize = FMath::RoundToInt(Layout->CellSize);
+	}
+	else
+	{
+		GridDimension = FIntPoint(10, 10);
+		GridSize = 50;
+	}
 }
 
 bool UE2GridEdModeSettings::MatchesGridManager(const AE2GridManager& InGridManager) const
 {
+	const FE2GridMapLayout* Layout = InGridManager.GetLayout();
+	const bool bLayoutMatches = Layout
+		? GridDimension == Layout->GridDimension && FMath::IsNearlyEqual(static_cast<float>(GridSize), Layout->CellSize)
+		: GridDimension == FIntPoint(10, 10) && GridSize == 50;
 	return Location.Equals(InGridManager.GetActorLocation()) &&
 		Rotation.Equals(InGridManager.GetActorRotation()) &&
-		GridDimension == InGridManager.GridDimension &&
-		GridSize == InGridManager.GridSize;
+		bLayoutMatches;
 }
 
 bool UE2GridEdModeSettings::IsValid() const

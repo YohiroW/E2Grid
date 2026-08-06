@@ -15,8 +15,10 @@ FE2GridCoord UE2GridUtils::WorldToGrid(AE2GridManager* InGridManager, const FVec
 {
 	ensure(InGridManager);
 	
+	int32 CellKey = INVALID_GRID_KEY;
 	FE2GridCoord OutGridCoord;
-	if(InGridManager->GetGridCoord(InWorldPos, OutGridCoord))
+	if (InGridManager->WorldToCell(InWorldPos, CellKey) &&
+		InGridManager->GetCoordByKey(CellKey, OutGridCoord))
 	{
 		return OutGridCoord;
 	}

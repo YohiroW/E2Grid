@@ -72,6 +72,9 @@ public:
 	bool CanCommitSettings() const;
 	bool CommitSettings();
 	void RevertSettings();
+	bool CanBuildActiveGrid() const;
+	bool BuildActiveGrid();
+	const FString& GetLastBuildSummary() const { return LastBuildSummary; }
 
 protected:
 	/** Binds UI commands to actions for the mesh paint mode */
@@ -115,6 +118,7 @@ protected:
 	TOptional<FIntPoint> HoveredGridCoord;
 	TOptional<FIntPoint> SelectedGridCoord;
 	bool bSettingsDirty = false;
+	FString LastBuildSummary = TEXT("Select a manager and target map asset, then build.");
 
 	FDelegateHandle PaletteChangedHandle;
 	FConsoleVariableSinkHandle CVarDelegateHandle;

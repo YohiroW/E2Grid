@@ -36,7 +36,7 @@ public:
 	FIntPoint GridDimension = FIntPoint(10, 10);
 
 	UPROPERTY(EditAnywhere, Category = "Grid", meta = (ClampMin = "1", UIMin = "1"))
-	int32 GridSize = 100;
+	int32 GridSize = 50;
 	
 	UPROPERTY(EditAnywhere, Category = "Grid")
 	bool bShowPreview = true;

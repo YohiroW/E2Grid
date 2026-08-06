@@ -10,6 +10,7 @@ public class E2GridGame : ModuleRules
             new string[]
             {
                 "Core",
+                "E2Grid",
             }
         );
 
@@ -18,6 +19,7 @@ public class E2GridGame : ModuleRules
             {
                 "CoreUObject",
                 "Engine",
+                "InputCore",
                 "Slate",
                 "SlateCore"
             }

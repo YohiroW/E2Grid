@@ -1,16 +1,12 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
 #pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "E2GridRuntimeData.h"
-#include "E2GridMapAsset.h"
 #include "E2GridManager.generated.h"
 
+class UE2GridMapAsset;
 class UE2GridVisualizeComponent;
-
-// ---------------------------------------------------------
 
 UCLASS()
 class E2GRID_API AE2GridManager : public AActor
@@ -19,110 +15,57 @@ class E2GRID_API AE2GridManager : public AActor
 
 public:
 	AE2GridManager();
-	
-	// Deprecated, the function should not be called by user, Grid Mode should be used to generate grid data.
-	UFUNCTION(BlueprintCallable, CallInEditor)
-	void Generate();
-	
-	UFUNCTION(BlueprintCallable)
-	void Clear();
-	
-	UFUNCTION(BlueprintCallable)
-	bool IsValidGridKey(const int32 InGridKey) const;
-	
-	UFUNCTION(BlueprintCallable)
-	bool IsValidGridCoord(const FE2GridCoord& InCoord) const;
-	
-	UFUNCTION(BlueprintCallable)
-	bool IsGridMapEmpty();
-	
-	UFUNCTION(BlueprintPure)
-	int32 GetGridKey(const FE2GridCoord& InCoord) const;
-	
-	UFUNCTION(BlueprintCallable)
-	FE2GridRuntimeData GetGridDataByKey(const int32 InGridKey) const;
 
-	UFUNCTION(BlueprintCallable)
-	bool TryGetGridData(const FE2GridCoord& InCoord, FE2GridRuntimeData& OutGridData) const;
-	
-	// TODO: Move to grid coordinates utils
-	UFUNCTION(BlueprintCallable)
-	FE2GridCoord GetCoordByKey(const int32 InGridKey);
-	
-	UFUNCTION(BlueprintCallable)
-	FE2GridCoord GetCoord(const int32& X, const int32& Y, const int32 Layer = 0);
-	
-	// UFUNCTION(BlueprintCallable)
-	// FE2GridCoord GetCoordByWorldPosition(const FVector& InWorldPos);
-	//
-	// UFUNCTION(BlueprintCallable)
-	// FE2GridCoord GetCoordByScreenPosition(const FVector& InScreenPos);
-	
-	UFUNCTION(BlueprintCallable)
-	FVector GetWorldPosition(const FVector& InOrigin, const FE2GridCoord& InCoord);
-
-	/** Returns the center of a grid cell in the grid manager's local space. */
-	UFUNCTION(BlueprintPure)
-	FVector GetGridLocalPosition(const FE2GridCoord& InCoord) const;
-
-	/** Returns the center of a grid cell in world space, including the actor transform. */
-	UFUNCTION(BlueprintPure)
-	FVector GetGridWorldPosition(const FE2GridCoord& InCoord) const;
-	
-	UFUNCTION(BlueprintCallable)
-	bool GetGridCoord(const FVector& InWorldPos, FE2GridCoord& OutCoord);
-	
-#if WITH_EDITOR
-	UFUNCTION(BlueprintCallable)
-	void DrawGridMap(bool bClearOnly = false);
-#endif
-
-protected:
-	virtual void OnConstruction(const FTransform& Transform) override;
-	
-	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
-public:
-	// Called every frame
-	virtual void Tick(float DeltaTime) override;
-	
-	// TODO: change grid map to independent data assets.
-	void ForEachGridData(TFunctionRef<bool(const FE2GridRuntimeData& InGridData, const FVector& InWorldPosition)> InFunc);
-	
+	const FE2GridMapLayout* GetLayout() const;
+	const TMap<int32, FE2GridCellData>* GetCells() const;
+
+	UFUNCTION(BlueprintPure, Category = "E2Grid")
+	bool HasValidGrid() const;
+
+	UFUNCTION(BlueprintPure, Category = "E2Grid")
+	bool IsValidGridKey(int32 CellKey) const;
+
+	UFUNCTION(BlueprintPure, Category = "E2Grid")
+	bool IsValidGridCoord(const FE2GridCoord& Coord) const;
+
+	UFUNCTION(BlueprintPure, Category = "E2Grid")
+	int32 GetGridKey(const FE2GridCoord& Coord) const;
+
+	UFUNCTION(BlueprintPure, Category = "E2Grid")
+	bool GetCoordByKey(int32 CellKey, FE2GridCoord& OutCoord) const;
+
+	UFUNCTION(BlueprintPure, Category = "E2Grid")
+	bool TryGetCellData(int32 CellKey, FE2GridCellData& OutCellData) const;
+
+	const FE2GridCellData* FindCell(int32 CellKey) const;
+
+	UFUNCTION(BlueprintPure, Category = "E2Grid")
+	bool WorldToCell(const FVector& WorldPosition, int32& OutCellKey) const;
+
+	UFUNCTION(BlueprintPure, Category = "E2Grid")
+	bool CellToWorld(int32 CellKey, FVector& OutWorldPosition) const;
+
+	FVector GetCellWorldCenterChecked(int32 CellKey) const;
+	void ForEachCell(TFunctionRef<void(int32, const FE2GridCellData&, const FVector&)> Visitor) const;
+
 #if WITH_EDITOR
-	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
-	virtual void PostLoad() override;
-#endif
-	
-// ---------------------------------------------------------
-	
-public:
-	// Indicate grid dimension (width, height)
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
-	FIntPoint GridDimension;
-	
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
-	int32 GridSize = 100;
-	
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, AdvancedDisplay)
-	FVector BaseOffset = FVector::ZeroVector;
-	
-#if WITH_EDITORONLY_DATA
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, AdvancedDisplay)
-	bool bDrawGridMap = false;
+	void RefreshVisualization();
 #endif
 
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grid")
 	TObjectPtr<UE2GridMapAsset> GridMapAsset;
-	
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
-	bool bShowVisualizedGrid = false;
-	
-	UPROPERTY(VisibleAnywhere)
-	TObjectPtr<UE2GridVisualizeComponent> GridVisualizeComponent; 
-	
-private:
-	UPROPERTY()
-	TArray<FE2GridRuntimeData> GridMap;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Visualization")
+	bool bShowVisualizedGrid = true;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Visualization")
+	TObjectPtr<UE2GridVisualizeComponent> GridVisualizeComponent;
+
+#if WITH_EDITORONLY_DATA
+	UPROPERTY(EditAnywhere, Category = "Build")
+	FE2GridBuildSettings BuildSettings;
+#endif
 };
