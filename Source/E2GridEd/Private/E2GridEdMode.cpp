@@ -191,6 +191,8 @@ void UE2GridEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimiti
 	const double HalfHeight = static_cast<double>(Height) * GridSize * 0.5;
 	const UE2GridSettings* RuntimeSettings = GetDefault<UE2GridSettings>();
 	const FLinearColor PreviewColor = RuntimeSettings->PreviewColor;
+	constexpr float PreviewThickness = 2.5f;
+	constexpr float PreviewHeight = 0.5f;
 	const FTransform PreviewTransform = GetPreviewTransform();
 	const double CornerLength = FMath::Min(
 		GridSize * 0.33,
@@ -215,10 +217,10 @@ void UE2GridEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimiti
 	{
 		const double LocalX = -HalfWidth + static_cast<double>(X) * GridSize;
 		DrawLocalLine(
-			FVector(LocalX, -HalfHeight, 0.0),
-			FVector(LocalX, HalfHeight, 0.0),
+			FVector(LocalX, -HalfHeight, PreviewHeight),
+			FVector(LocalX, HalfHeight, PreviewHeight),
 			PreviewColor,
-			1.0f,
+			PreviewThickness,
 			SDPG_World);
 	}
 
@@ -226,29 +228,29 @@ void UE2GridEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimiti
 	{
 		const double LocalY = -HalfHeight + static_cast<double>(Y) * GridSize;
 		DrawLocalLine(
-			FVector(-HalfWidth, LocalY, 0.0),
-			FVector(HalfWidth, LocalY, 0.0),
+			FVector(-HalfWidth, LocalY, PreviewHeight),
+			FVector(HalfWidth, LocalY, PreviewHeight),
 			PreviewColor,
-			1.0f,
+			PreviewThickness,
 			SDPG_World);
 	}
 
-	const auto DrawBorder = [&DrawLocalLine, CornerLength, &PreviewColor](
+	const auto DrawBorder = [&DrawLocalLine, CornerLength, &PreviewColor, PreviewThickness, PreviewHeight](
 		const FVector& LocalStart,
 		const FVector& LocalEnd)
 	{
 		const FVector Direction = (LocalEnd - LocalStart).GetSafeNormal();
 		const double BorderLength = FVector::Distance(LocalStart, LocalEnd);
 		const FVector CornerOffset = Direction * FMath::Min(CornerLength, BorderLength * 0.5);
-		DrawLocalLine(LocalStart, LocalStart + CornerOffset, PreviewColor, 2.5f, SDPG_Foreground);
-		DrawLocalLine(LocalStart + CornerOffset, LocalEnd - CornerOffset, PreviewColor, 2.0f, SDPG_Foreground);
-		DrawLocalLine(LocalEnd - CornerOffset, LocalEnd, PreviewColor, 2.5f, SDPG_Foreground);
+		DrawLocalLine(LocalStart, LocalStart + CornerOffset, PreviewColor, PreviewThickness, SDPG_Foreground);
+		DrawLocalLine(LocalStart + CornerOffset, LocalEnd - CornerOffset, PreviewColor, PreviewThickness, SDPG_Foreground);
+		DrawLocalLine(LocalEnd - CornerOffset, LocalEnd, PreviewColor, PreviewThickness, SDPG_Foreground);
 	};
 
-	DrawBorder(FVector(-HalfWidth, -HalfHeight, 0.0), FVector(HalfWidth, -HalfHeight, 0.0));
-	DrawBorder(FVector(HalfWidth, -HalfHeight, 0.0), FVector(HalfWidth, HalfHeight, 0.0));
-	DrawBorder(FVector(HalfWidth, HalfHeight, 0.0), FVector(-HalfWidth, HalfHeight, 0.0));
-	DrawBorder(FVector(-HalfWidth, HalfHeight, 0.0), FVector(-HalfWidth, -HalfHeight, 0.0));
+	DrawBorder(FVector(-HalfWidth, -HalfHeight, PreviewHeight), FVector(HalfWidth, -HalfHeight, PreviewHeight));
+	DrawBorder(FVector(HalfWidth, -HalfHeight, PreviewHeight), FVector(HalfWidth, HalfHeight, PreviewHeight));
+	DrawBorder(FVector(HalfWidth, HalfHeight, PreviewHeight), FVector(-HalfWidth, HalfHeight, PreviewHeight));
+	DrawBorder(FVector(-HalfWidth, HalfHeight, PreviewHeight), FVector(-HalfWidth, -HalfHeight, PreviewHeight));
 
 	const auto DrawGridCellOutline = [
 		&DrawLocalLine,
@@ -256,7 +258,9 @@ void UE2GridEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimiti
 		Height,
 		GridSize,
 		HalfWidth,
-		HalfHeight](
+		HalfHeight
+		]
+	(
 		const FIntPoint& Coord,
 		const FLinearColor& Color,
 		float Thickness,
@@ -282,16 +286,16 @@ void UE2GridEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimiti
 		DrawGridCellOutline(
 			SelectedGridCoord.GetValue(),
 			RuntimeSettings->SelectedColor,
-			4.5f,
-			0.75);
+			5.0f,
+			2* PreviewHeight);
 	}
 	if (HoveredGridCoord.IsSet())
 	{
 		DrawGridCellOutline(
 			HoveredGridCoord.GetValue(),
 			RuntimeSettings->HoverColor,
-			3.5f,
-			1.0);
+			5.0f,
+			2* PreviewHeight);
 	}
 }
 
