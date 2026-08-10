@@ -19,7 +19,6 @@ public:
 	virtual FName GetSectionName() const override;
 	
 public:
-	
 	// -------------- Builder ------------------
 	UPROPERTY(EditAnywhere, Config, Category = "Builder")
 	float DefaultAgentHeight = 10.0f;

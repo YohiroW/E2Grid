@@ -189,8 +189,8 @@ void UE2GridEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimiti
 	const double GridSize = static_cast<double>(Settings->GridSize);
 	const double HalfWidth = static_cast<double>(Width) * GridSize * 0.5;
 	const double HalfHeight = static_cast<double>(Height) * GridSize * 0.5;
-	const UE2GridSettings* GridSettings = GetDefault<UE2GridSettings>();
-	const FLinearColor PreviewColor = GridSettings->PreviewColor;
+	const UE2GridSettings* RuntimeSettings = GetDefault<UE2GridSettings>();
+	const FLinearColor PreviewColor = RuntimeSettings->PreviewColor;
 	const FTransform PreviewTransform = GetPreviewTransform();
 	const double CornerLength = FMath::Min(
 		GridSize * 0.33,
@@ -281,7 +281,7 @@ void UE2GridEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimiti
 	{
 		DrawGridCellOutline(
 			SelectedGridCoord.GetValue(),
-			GridSettings->SelectedColor,
+			RuntimeSettings->SelectedColor,
 			4.5f,
 			0.75);
 	}
@@ -289,7 +289,7 @@ void UE2GridEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimiti
 	{
 		DrawGridCellOutline(
 			HoveredGridCoord.GetValue(),
-			GridSettings->HoverColor,
+			RuntimeSettings->HoverColor,
 			3.5f,
 			1.0);
 	}
