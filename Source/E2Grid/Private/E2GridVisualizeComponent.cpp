@@ -8,8 +8,8 @@ UE2GridVisualizeComponent::UE2GridVisualizeComponent()
 #if WITH_EDITORONLY_DATA
 	if (!IsRunningCommandlet() && !GetStaticMesh())
 	{
-		static ConstructorHelpers::FObjectFinder<UStaticMesh> DefaultMesh(TEXT("/E2Grid/Meshes/Plane"));
-		SetStaticMesh(DefaultMesh.Object);
+		static ConstructorHelpers::FObjectFinder<UStaticMesh> DefaultMesh(TEXT("/Engine/BasicShapes/Plane"));
+		Super::SetStaticMesh(DefaultMesh.Object);
 	}
 #endif
 }

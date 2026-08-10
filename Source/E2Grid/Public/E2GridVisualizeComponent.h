@@ -4,7 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
-#include "Components/InstancedStaticMeshComponent.h"
+#include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "E2GridVisualizeComponent.generated.h"
 
 class AE2GridManager;
@@ -26,7 +26,7 @@ public:
 };
 
 UCLASS()
-class E2GRID_API UE2GridVisualizeComponent : public UInstancedStaticMeshComponent
+class E2GRID_API UE2GridVisualizeComponent : public UHierarchicalInstancedStaticMeshComponent
 {
 	GENERATED_BODY()
 
