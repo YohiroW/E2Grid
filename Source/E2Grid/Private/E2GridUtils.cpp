@@ -14,9 +14,12 @@ bool UE2GridUtils::MouseToWorld(APlayerController* InPC, FVector& OutWorldLocati
 FE2GridCoord UE2GridUtils::WorldToGrid(AE2GridManager* InGridManager, const FVector& InWorldPos)
 {
 	ensure(InGridManager);
-	
+
+	int32 CellKey = INVALID_GRID_KEY;
 	FE2GridCoord OutGridCoord;
-	if(InGridManager->GetGridCoord(InWorldPos, OutGridCoord))
+	if (InGridManager &&
+		InGridManager->WorldToCell(InWorldPos, CellKey) &&
+		InGridManager->GetCoordByKey(CellKey, OutGridCoord))
 	{
 		return OutGridCoord;
 	}

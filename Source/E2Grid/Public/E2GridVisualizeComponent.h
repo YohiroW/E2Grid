@@ -18,10 +18,10 @@ public:
 	UGridVisualDataAsset() {}
 	
 public:
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Visualization")
 	TArray<FName> VisualTags;
 	
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Visualization")
 	TMap<FName, UMaterialInterface*> VisualMap;
 };
 
@@ -34,7 +34,7 @@ public:
 	// Sets default values for this component's properties
 	UE2GridVisualizeComponent();
 	
-	UFUNCTION(BlueprintCallable, CallInEditor)
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "E2Grid|Visualization")
 	void BuildGridInstancedMeshes();
 	
 protected:
@@ -48,7 +48,7 @@ public:
 // ------------------------------------------------------------
 	
 public:
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Visualization")
 	UGridVisualDataAsset* VisualData;
 	
 protected:

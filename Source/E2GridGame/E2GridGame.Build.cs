@@ -10,14 +10,16 @@ public class E2GridGame : ModuleRules
             new string[]
             {
                 "Core",
+				"CoreUObject",
+				"E2Grid",
+				"Engine",
+				"InputCore",
             }
         );
 
         PrivateDependencyModuleNames.AddRange(
             new string[]
             {
-                "CoreUObject",
-                "Engine",
                 "Slate",
                 "SlateCore"
             }

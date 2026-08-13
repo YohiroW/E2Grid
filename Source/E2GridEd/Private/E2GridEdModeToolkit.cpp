@@ -53,10 +53,12 @@ void FE2GridEdModeToolkit::Init(const TSharedPtr<IToolkitHost>& InitToolkitHost,
 		+ SWidgetSwitcher::Slot()
 		[
 			SNew(SE2GridBakeView)
+			.EditorMode(E2GridEdMode)
 		]
 		+ SWidgetSwitcher::Slot()
 		[
 			SNew(SE2GridDebugView)
+			.EditorMode(E2GridEdMode)
 		];
 
 	FModeToolkit::Init(InitToolkitHost, InOwningMode);

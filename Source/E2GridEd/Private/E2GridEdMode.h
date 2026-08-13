@@ -6,6 +6,7 @@
 
 class UE2GridEdModeSettings;
 class UE2GridEdModeGridSettings;
+class UE2GridMapAsset;
 class AE2GridManager;
 class AActor;
 
@@ -72,6 +73,8 @@ public:
 	bool CanCommitSettings() const;
 	bool CommitSettings();
 	void RevertSettings();
+	bool CanBuildGridMap(const UE2GridMapAsset* TargetAsset) const;
+	bool BuildGridMap(UE2GridMapAsset* TargetAsset, FText& OutMessage);
 
 protected:
 	/** Binds UI commands to actions for the mesh paint mode */

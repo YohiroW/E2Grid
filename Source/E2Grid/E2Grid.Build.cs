@@ -26,6 +26,8 @@ public class E2Grid : ModuleRules
 			new string[]
 			{
 				"Core",
+				"CoreUObject",
+				"Engine",
 				// ... add other public dependencies that you statically link with here ...
 			}
 			);
@@ -34,8 +36,6 @@ public class E2Grid : ModuleRules
 		PrivateDependencyModuleNames.AddRange(
 			new string[]
 			{
-				"CoreUObject",
-				"Engine",
 				"Slate",
 				"SlateCore",
 				"DeveloperSettings",
