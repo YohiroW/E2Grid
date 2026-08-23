@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Widgets/SCompoundWidget.h"
 #include "Widgets/Input/SComboBox.h"
+#include "E2GridManager.h"
 
 class IDetailsView;
 class UE2GridEdMode;

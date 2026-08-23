@@ -3,7 +3,6 @@
 #include "E2GridEdModeGridSettings.h"
 #include "E2GridEdModeSettings.h"
 #include "E2GridEdMode.h"
-#include "E2GridManager.h"
 #include "Engine/Level.h"
 #include "IDetailsView.h"
 #include "Modules/ModuleManager.h"
