@@ -21,19 +21,25 @@ void UE2GridSubsystem::Deinitialize()
 	RegisteredUnits.Reset();
 	PendingUnits.Reset();
 	CellOwnersByKey.Reset();
+	RuntimeRevision = 0;
 	Super::Deinitialize();
 }
 
 bool UE2GridSubsystem::RegisterManager(AE2GridManager* Manager)
 {
+	CompactWeakState();
 	if (!IsValid(Manager) || !Manager->HasValidGrid())
 	{
 		UE_LOG(LogE2GridRuntime, Error, TEXT("Cannot register invalid grid manager %s."), *GetNameSafe(Manager));
 		return false;
 	}
 
-	if (ActiveManager.IsValid() && ActiveManager.Get() != Manager)
+	if (ActiveManager.IsValid())
 	{
+		if (ActiveManager.Get() == Manager)
+		{
+			return true;
+		}
 		UE_LOG(
 			LogE2GridRuntime,
 			Error,
@@ -44,6 +50,7 @@ bool UE2GridSubsystem::RegisterManager(AE2GridManager* Manager)
 	}
 
 	ActiveManager = Manager;
+	AdvanceRevision(EE2GridStateChangeKind::ManagerChanged);
 	RetryPendingUnits();
 	return true;
 }
@@ -66,6 +73,7 @@ void UE2GridSubsystem::UnregisterManager(AE2GridManager* Manager)
 	RegisteredUnits.Reset();
 	CellOwnersByKey.Reset();
 	ActiveManager.Reset();
+	AdvanceRevision(EE2GridStateChangeKind::ManagerChanged);
 }
 
 EE2GridRegistrationStatus UE2GridSubsystem::RegisterUnit(UE2GridUnitComponent* Unit)
@@ -97,19 +105,16 @@ EE2GridRegistrationStatus UE2GridSubsystem::RegisterUnit(UE2GridUnitComponent* U
 		return EE2GridRegistrationStatus::InvalidLocation;
 	}
 
-	const FE2GridCellData* Cell = ActiveManager->FindCell(CellKey);
-	if (!Cell || !Cell->CanStandOn())
+	const FE2GridPlacementResult Placement = QueryPlacement(Unit, CellKey);
+	if (Placement.Status != EE2GridQueryStatus::Success)
 	{
 		PendingUnits.Remove(WeakUnit);
-		Unit->SetPlacementState(false, INVALID_GRID_KEY, EE2GridRegistrationStatus::CellNotStandable);
-		return EE2GridRegistrationStatus::CellNotStandable;
-	}
-
-	if (GetCellOwner(CellKey))
-	{
-		PendingUnits.Remove(WeakUnit);
-		Unit->SetPlacementState(false, INVALID_GRID_KEY, EE2GridRegistrationStatus::CellOccupied);
-		return EE2GridRegistrationStatus::CellOccupied;
+		const EE2GridRegistrationStatus RegistrationStatus =
+			Placement.Status == EE2GridQueryStatus::Occupied
+				? EE2GridRegistrationStatus::CellOccupied
+				: EE2GridRegistrationStatus::CellNotStandable;
+		Unit->SetPlacementState(false, INVALID_GRID_KEY, RegistrationStatus);
+		return RegistrationStatus;
 	}
 
 	RegisteredUnits.Add(WeakUnit);
@@ -121,6 +126,11 @@ EE2GridRegistrationStatus UE2GridSubsystem::RegisterUnit(UE2GridUnitComponent* U
 		false,
 		nullptr,
 		ETeleportType::TeleportPhysics);
+	AdvanceRevision(
+		EE2GridStateChangeKind::UnitRegistered,
+		Unit,
+		INVALID_GRID_KEY,
+		CellKey);
 	return EE2GridRegistrationStatus::Registered;
 }
 
@@ -133,13 +143,24 @@ void UE2GridSubsystem::UnregisterUnit(UE2GridUnitComponent* Unit)
 
 	const TWeakObjectPtr<UE2GridUnitComponent> WeakUnit(Unit);
 	PendingUnits.Remove(WeakUnit);
-	RegisteredUnits.Remove(WeakUnit);
-	if (TWeakObjectPtr<UE2GridUnitComponent>* Owner = CellOwnersByKey.Find(Unit->GetCurrentCellKey());
+	const bool bWasRegistered = RegisteredUnits.Remove(WeakUnit) > 0;
+	const int32 FromCellKey = Unit->GetCurrentCellKey();
+	bool bRemovedOccupancy = false;
+	if (TWeakObjectPtr<UE2GridUnitComponent>* Owner = CellOwnersByKey.Find(FromCellKey);
 		Owner && Owner->Get() == Unit)
 	{
-		CellOwnersByKey.Remove(Unit->GetCurrentCellKey());
+		CellOwnersByKey.Remove(FromCellKey);
+		bRemovedOccupancy = true;
 	}
 	Unit->SetPlacementState(false, INVALID_GRID_KEY, EE2GridRegistrationStatus::Unregistered);
+	if (bWasRegistered || bRemovedOccupancy)
+	{
+		AdvanceRevision(
+			EE2GridStateChangeKind::UnitUnregistered,
+			Unit,
+			FromCellKey,
+			INVALID_GRID_KEY);
+	}
 }
 
 bool UE2GridSubsystem::WorldToCell(const FVector& WorldPosition, int32& OutCellKey) const
@@ -157,85 +178,171 @@ bool UE2GridSubsystem::GetCell(int32 CellKey, FE2GridCellData& OutCellData) cons
 	return ActiveManager.IsValid() && ActiveManager->TryGetCellData(CellKey, OutCellData);
 }
 
-UE2GridUnitComponent* UE2GridSubsystem::GetCellOwner(int32 CellKey)
+UE2GridUnitComponent* UE2GridSubsystem::GetCellOwner(int32 CellKey) const
 {
-	if (TWeakObjectPtr<UE2GridUnitComponent>* Owner = CellOwnersByKey.Find(CellKey))
+	if (const TWeakObjectPtr<UE2GridUnitComponent>* Owner = CellOwnersByKey.Find(CellKey);
+		Owner && Owner->IsValid())
 	{
-		if (Owner->IsValid())
-		{
-			return Owner->Get();
-		}
-		CellOwnersByKey.Remove(CellKey);
+		return Owner->Get();
 	}
 	return nullptr;
 }
 
-bool UE2GridSubsystem::CanPlaceUnit(const UE2GridUnitComponent* Unit, int32 CellKey)
+FE2GridPlacementResult UE2GridSubsystem::QueryPlacement(
+	const UE2GridUnitComponent* Unit,
+	int32 CellKey) const
 {
+	FE2GridPlacementResult Result;
+	Result.CellKey = CellKey;
+	Result.RuntimeRevision = RuntimeRevision;
 	if (!ActiveManager.IsValid())
 	{
-		return false;
+		Result.Status = EE2GridQueryStatus::NoActiveGrid;
+		return Result;
 	}
-	const FE2GridCellData* Cell = ActiveManager->FindCell(CellKey);
-	if (!Cell || !Cell->CanStandOn())
+	if (!IsValid(Unit) || !IsValid(Unit->GetOwner()))
 	{
-		return false;
+		Result.Status = EE2GridQueryStatus::InvalidUnit;
+		return Result;
+	}
+
+	const FE2GridCellData* Cell = ActiveManager->FindCell(CellKey);
+	if (!Cell)
+	{
+		Result.Status = EE2GridQueryStatus::InvalidCell;
+		return Result;
+	}
+	if (!Cell->CanStandOn())
+	{
+		Result.Status = EE2GridQueryStatus::NotStandable;
+		return Result;
 	}
 	const UE2GridUnitComponent* Owner = GetCellOwner(CellKey);
-	return !Owner || Owner == Unit;
-}
-
-bool UE2GridSubsystem::ValidatePathForCommit(
-	const UE2GridUnitComponent* Unit,
-	const TArray<FE2GridPathStep>& TraversedPath,
-	int32& OutGoalCellKey)
-{
-	OutGoalCellKey = INVALID_GRID_KEY;
-	if (!Unit || !IsUnitRegistered(Unit) || !ActiveManager.IsValid())
+	if (Owner && Owner != Unit)
 	{
-		return false;
+		Result.Status = EE2GridQueryStatus::Occupied;
+		return Result;
 	}
 
-	int32 FromCellKey = Unit->GetCurrentCellKey();
-	for (int32 StepIndex = 0; StepIndex < TraversedPath.Num(); ++StepIndex)
+	Result.Status = EE2GridQueryStatus::Success;
+	return Result;
+}
+
+bool UE2GridSubsystem::CanPlaceUnit(const UE2GridUnitComponent* Unit, int32 CellKey) const
+{
+	return QueryPlacement(Unit, CellKey).Status == EE2GridQueryStatus::Success;
+}
+
+EE2GridQueryStatus UE2GridSubsystem::ValidatePathForCommit(
+	const UE2GridUnitComponent* Unit,
+	const FE2GridPathResult& PathResult,
+	int32& OutGoalCellKey) const
+{
+	OutGoalCellKey = INVALID_GRID_KEY;
+	if (!ActiveManager.IsValid())
 	{
-		const int32 ToCellKey = TraversedPath[StepIndex].ToCellKey;
+		return EE2GridQueryStatus::NoActiveGrid;
+	}
+	if (!Unit || !IsUnitRegistered(Unit))
+	{
+		return EE2GridQueryStatus::InvalidUnit;
+	}
+	if (PathResult.QueryStatus != EE2GridQueryStatus::Success)
+	{
+		return PathResult.QueryStatus;
+	}
+	if (PathResult.RuntimeRevision != RuntimeRevision)
+	{
+		return EE2GridQueryStatus::StaleRevision;
+	}
+
+	const int32 StartCellKey = Unit->GetCurrentCellKey();
+	if (PathResult.StartCellKey != StartCellKey || PathResult.GoalCellKey == INVALID_GRID_KEY)
+	{
+		return EE2GridQueryStatus::InvalidRequest;
+	}
+
+	int32 FromCellKey = StartCellKey;
+	float RevalidatedTotalCost = 0.0f;
+	for (int32 StepIndex = 0; StepIndex < PathResult.Steps.Num(); ++StepIndex)
+	{
+		const int32 ToCellKey = PathResult.Steps[StepIndex].ToCellKey;
+		const FE2GridCellData* Cell = ActiveManager->FindCell(ToCellKey);
+		if (!Cell)
+		{
+			return EE2GridQueryStatus::InvalidCell;
+		}
+
 		bool bIsTraversableNeighbor = false;
+		float StepCost = 0.0f;
 		ActiveManager->ForEachTraversableNeighbor(
 			FromCellKey,
-			[ToCellKey, &bIsTraversableNeighbor](int32 NeighborKey, float)
+			[ToCellKey, &bIsTraversableNeighbor, &StepCost](int32 NeighborKey, float NeighborCost)
 			{
-				bIsTraversableNeighbor |= NeighborKey == ToCellKey;
+				if (NeighborKey == ToCellKey)
+				{
+					bIsTraversableNeighbor = true;
+					StepCost = NeighborCost;
+				}
 			});
 		if (!bIsTraversableNeighbor)
 		{
-			return false;
+			return EE2GridQueryStatus::NotTraversable;
 		}
 
-		const FE2GridCellData* Cell = ActiveManager->FindCell(ToCellKey);
-		const bool bIsGoal = StepIndex == TraversedPath.Num() - 1;
-		if (!Cell || (bIsGoal ? !Cell->CanStandOn() : !Cell->CanWalkThrough()))
+		const bool bIsGoal = StepIndex == PathResult.Steps.Num() - 1;
+		if (bIsGoal ? !Cell->CanStandOn() : !Cell->CanWalkThrough())
 		{
-			return false;
+			return bIsGoal
+				? EE2GridQueryStatus::NotStandable
+				: EE2GridQueryStatus::NotTraversable;
 		}
 		const UE2GridUnitComponent* Owner = GetCellOwner(ToCellKey);
 		if (Owner && Owner != Unit)
 		{
-			return false;
+			return EE2GridQueryStatus::Occupied;
 		}
+		RevalidatedTotalCost += StepCost;
 		FromCellKey = ToCellKey;
 	}
 
+	if (FromCellKey != PathResult.GoalCellKey ||
+		!FMath::IsNearlyEqual(RevalidatedTotalCost, PathResult.TotalCost))
+	{
+		return EE2GridQueryStatus::InvalidRequest;
+	}
+	const FE2GridPlacementResult Placement = QueryPlacement(Unit, FromCellKey);
+	if (Placement.Status != EE2GridQueryStatus::Success)
+	{
+		return Placement.Status;
+	}
+
 	OutGoalCellKey = FromCellKey;
-	return CanPlaceUnit(Unit, OutGoalCellKey);
+	return EE2GridQueryStatus::Success;
 }
 
-bool UE2GridSubsystem::CommitUnitMove(
-	UE2GridUnitComponent* Unit,
-	const TArray<FE2GridPathStep>& TraversedPath)
+EE2GridQueryStatus UE2GridSubsystem::ValidatePath(
+	const UE2GridUnitComponent* Unit,
+	const FE2GridPathResult& PathResult) const
 {
 	int32 GoalCellKey = INVALID_GRID_KEY;
-	if (!ValidatePathForCommit(Unit, TraversedPath, GoalCellKey))
+	return ValidatePathForCommit(Unit, PathResult, GoalCellKey);
+}
+
+bool UE2GridSubsystem::CommitUnitMoveFromPath(
+	UE2GridUnitComponent* Unit,
+	const FE2GridPathResult& PathResult,
+	FE2GridMoveCommitResult& OutResult)
+{
+	CompactWeakState();
+	OutResult = FE2GridMoveCommitResult();
+	OutResult.FromCellKey = Unit ? Unit->GetCurrentCellKey() : INVALID_GRID_KEY;
+	OutResult.ToCellKey = PathResult.GoalCellKey;
+	OutResult.RuntimeRevision = RuntimeRevision;
+
+	int32 GoalCellKey = INVALID_GRID_KEY;
+	OutResult.Status = ValidatePathForCommit(Unit, PathResult, GoalCellKey);
+	if (OutResult.Status != EE2GridQueryStatus::Success)
 	{
 		return false;
 	}
@@ -245,6 +352,7 @@ bool UE2GridSubsystem::CommitUnitMove(
 	if (!SourceOwner || SourceOwner->Get() != Unit)
 	{
 		UE_LOG(LogE2GridRuntime, Error, TEXT("Occupancy invariant broken for %s."), *GetNameSafe(Unit->GetOwner()));
+		OutResult.Status = EE2GridQueryStatus::InvalidUnit;
 		return false;
 	}
 
@@ -259,7 +367,52 @@ bool UE2GridSubsystem::CommitUnitMove(
 		false,
 		nullptr,
 		ETeleportType::TeleportPhysics);
+	if (SourceCellKey != GoalCellKey)
+	{
+		AdvanceRevision(
+			EE2GridStateChangeKind::OccupancyMoved,
+			Unit,
+			SourceCellKey,
+			GoalCellKey);
+	}
+	OutResult.Status = EE2GridQueryStatus::Success;
+	OutResult.FromCellKey = SourceCellKey;
+	OutResult.ToCellKey = GoalCellKey;
+	OutResult.RuntimeRevision = RuntimeRevision;
 	return true;
+}
+
+bool UE2GridSubsystem::CommitUnitMove(
+	UE2GridUnitComponent* Unit,
+	const TArray<FE2GridPathStep>& TraversedPath)
+{
+	FE2GridPathResult LegacyPath;
+	LegacyPath.Reset(EE2GridQueryStatus::Success);
+	LegacyPath.StartCellKey = Unit ? Unit->GetCurrentCellKey() : INVALID_GRID_KEY;
+	LegacyPath.GoalCellKey = TraversedPath.IsEmpty()
+		? LegacyPath.StartCellKey
+		: TraversedPath.Last().ToCellKey;
+	LegacyPath.RuntimeRevision = RuntimeRevision;
+	LegacyPath.Steps = TraversedPath;
+	int32 FromCellKey = LegacyPath.StartCellKey;
+	for (const FE2GridPathStep& Step : TraversedPath)
+	{
+		if (ActiveManager.IsValid())
+		{
+			ActiveManager->ForEachTraversableNeighbor(
+				FromCellKey,
+				[&LegacyPath, &Step](int32 NeighborKey, float StepCost)
+				{
+					if (NeighborKey == Step.ToCellKey)
+					{
+						LegacyPath.TotalCost += StepCost;
+					}
+				});
+		}
+		FromCellKey = Step.ToCellKey;
+	}
+	FE2GridMoveCommitResult CommitResult;
+	return CommitUnitMoveFromPath(Unit, LegacyPath, CommitResult);
 }
 
 bool UE2GridSubsystem::FindPath(
@@ -267,18 +420,123 @@ bool UE2GridSubsystem::FindPath(
 	int32 GoalCellKey,
 	FE2GridPathResult& OutResult) const
 {
-	if (!RequestingUnit || !IsUnitRegistered(RequestingUnit) || !ActiveManager.IsValid())
+	OutResult.Reset(EE2GridQueryStatus::InvalidRequest);
+	OutResult.GoalCellKey = GoalCellKey;
+	OutResult.RuntimeRevision = RuntimeRevision;
+	if (!ActiveManager.IsValid())
 	{
-		OutResult.Reset(EE2GridPathStatus::InvalidUnit);
+		OutResult.SetQueryStatus(EE2GridQueryStatus::NoActiveGrid);
+		return false;
+	}
+	if (!RequestingUnit || !IsUnitRegistered(RequestingUnit))
+	{
+		OutResult.SetQueryStatus(EE2GridQueryStatus::InvalidUnit);
 		return false;
 	}
 
+	OutResult.StartCellKey = RequestingUnit->GetCurrentCellKey();
 	return FE2GridPathFinding::FindPath(
 		*ActiveManager,
 		CellOwnersByKey,
 		RequestingUnit,
-		RequestingUnit->GetCurrentCellKey(),
+		OutResult.StartCellKey,
 		GoalCellKey,
+		OutResult);
+}
+
+bool UE2GridSubsystem::FindReachableCells(
+	const UE2GridUnitComponent* RequestingUnit,
+	float MovementBudget,
+	FE2GridReachableResult& OutResult) const
+{
+	OutResult.Reset();
+	OutResult.Budget = MovementBudget;
+	OutResult.RuntimeRevision = RuntimeRevision;
+	if (!ActiveManager.IsValid())
+	{
+		OutResult.Status = EE2GridQueryStatus::NoActiveGrid;
+		return false;
+	}
+	if (!RequestingUnit || !IsUnitRegistered(RequestingUnit))
+	{
+		OutResult.Status = EE2GridQueryStatus::InvalidUnit;
+		return false;
+	}
+	OutResult.StartCellKey = RequestingUnit->GetCurrentCellKey();
+	if (!FMath::IsFinite(MovementBudget) || MovementBudget < 0.0f)
+	{
+		OutResult.Status = EE2GridQueryStatus::InvalidRequest;
+		return false;
+	}
+
+	return FE2GridPathFinding::FindReachableCells(
+		*ActiveManager,
+		CellOwnersByKey,
+		RequestingUnit,
+		OutResult.StartCellKey,
+		MovementBudget,
+		OutResult);
+}
+
+bool UE2GridSubsystem::BuildPathFromReachableResult(
+	const FE2GridReachableResult& ReachableResult,
+	int32 GoalCellKey,
+	FE2GridPathResult& OutResult) const
+{
+	if (!ActiveManager.IsValid())
+	{
+		OutResult.Reset(EE2GridQueryStatus::NoActiveGrid);
+		OutResult.StartCellKey = ReachableResult.StartCellKey;
+		OutResult.GoalCellKey = GoalCellKey;
+		OutResult.RuntimeRevision = ReachableResult.RuntimeRevision;
+		return false;
+	}
+	if (ReachableResult.RuntimeRevision != RuntimeRevision)
+	{
+		OutResult.Reset(EE2GridQueryStatus::StaleRevision);
+		OutResult.StartCellKey = ReachableResult.StartCellKey;
+		OutResult.GoalCellKey = GoalCellKey;
+		OutResult.RuntimeRevision = ReachableResult.RuntimeRevision;
+		return false;
+	}
+	return FE2GridPathFinding::BuildPathFromReachableResult(
+		ReachableResult,
+		GoalCellKey,
+		OutResult);
+}
+
+bool UE2GridSubsystem::FindCellsInRange(
+	int32 StartCellKey,
+	float MaxRange,
+	EE2GridRangeMetric Metric,
+	FE2GridRangeResult& OutResult) const
+{
+	OutResult.Reset();
+	OutResult.StartCellKey = StartCellKey;
+	OutResult.MaxRange = MaxRange;
+	OutResult.Metric = Metric;
+	OutResult.RuntimeRevision = RuntimeRevision;
+	if (!ActiveManager.IsValid())
+	{
+		OutResult.Status = EE2GridQueryStatus::NoActiveGrid;
+		return false;
+	}
+	if (!ActiveManager->FindCell(StartCellKey))
+	{
+		OutResult.Status = EE2GridQueryStatus::InvalidCell;
+		return false;
+	}
+	if (!FMath::IsFinite(MaxRange) || MaxRange < 0.0f)
+	{
+		OutResult.Status = EE2GridQueryStatus::InvalidRequest;
+		return false;
+	}
+
+	return FE2GridPathFinding::FindCellsInRange(
+		*ActiveManager,
+		StartCellKey,
+		MaxRange,
+		Metric,
 		OutResult);
 }
 
@@ -286,6 +544,23 @@ bool UE2GridSubsystem::IsUnitRegistered(const UE2GridUnitComponent* Unit) const
 {
 	return Unit && RegisteredUnits.Contains(
 		TWeakObjectPtr<UE2GridUnitComponent>(const_cast<UE2GridUnitComponent*>(Unit)));
+}
+
+void UE2GridSubsystem::AdvanceRevision(
+	EE2GridStateChangeKind ChangeKind,
+	UE2GridUnitComponent* Unit,
+	int32 FromCellKey,
+	int32 ToCellKey)
+{
+	checkf(RuntimeRevision < TNumericLimits<int64>::Max(), TEXT("E2Grid runtime revision overflowed."));
+	++RuntimeRevision;
+	FE2GridStateDelta Delta;
+	Delta.ChangeKind = ChangeKind;
+	Delta.Unit = Unit;
+	Delta.FromCellKey = FromCellKey;
+	Delta.ToCellKey = ToCellKey;
+	Delta.RuntimeRevision = RuntimeRevision;
+	OnStateChanged.Broadcast(Delta);
 }
 
 void UE2GridSubsystem::RetryPendingUnits()
@@ -323,11 +598,23 @@ void UE2GridSubsystem::CompactWeakState()
 			It.RemoveCurrent();
 		}
 	}
+
+	TArray<int32> ReleasedCellKeys;
 	for (auto It = CellOwnersByKey.CreateIterator(); It; ++It)
 	{
 		if (!It.Value().IsValid())
 		{
+			ReleasedCellKeys.Add(It.Key());
 			It.RemoveCurrent();
 		}
+	}
+	ReleasedCellKeys.Sort();
+	for (int32 ReleasedCellKey : ReleasedCellKeys)
+	{
+		AdvanceRevision(
+			EE2GridStateChangeKind::UnitUnregistered,
+			nullptr,
+			ReleasedCellKey,
+			INVALID_GRID_KEY);
 	}
 }

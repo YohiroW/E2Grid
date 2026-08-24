@@ -19,7 +19,8 @@ namespace
 
 	TObjectPtr<UE2GridMapAsset> CreateMapAsset(
 		const FIntPoint& Dimension,
-		const TSet<int32>& OmittedKeys = {})
+		const TSet<int32>& OmittedKeys = {},
+		const TSet<int32>& NonStandableKeys = {})
 	{
 		UE2GridMapAsset* Asset = NewObject<UE2GridMapAsset>(GetTransientPackage());
 		FE2GridMapLayout Layout;
@@ -39,7 +40,7 @@ namespace
 				}
 				FE2GridCellData Cell;
 				Cell.SetFlag(EE2GridCellFlags::CanWalkThrough, true);
-				Cell.SetFlag(EE2GridCellFlags::CanStandOn, true);
+				Cell.SetFlag(EE2GridCellFlags::CanStandOn, !NonStandableKeys.Contains(CellKey));
 				Cells.Add(CellKey, Cell);
 			}
 		}
@@ -330,6 +331,10 @@ bool FE2GridPathAndCommitTest::RunTest(const FString& Parameters)
 
 	FE2GridPathResult Path;
 	TestTrue(TEXT("A* finds a path"), Subsystem->FindPath(MovingUnit, 8, Path));
+	TestEqual(TEXT("Unified path status reports success"), Path.QueryStatus, EE2GridQueryStatus::Success);
+	TestEqual(TEXT("Path records its start"), Path.StartCellKey, 0);
+	TestEqual(TEXT("Path records its goal"), Path.GoalCellKey, 8);
+	TestEqual(TEXT("Path records its runtime snapshot"), Path.RuntimeRevision, Subsystem->GetRuntimeRevision());
 	TestEqual(TEXT("Diagonal shortest path contains two steps"), Path.Steps.Num(), 2);
 	TestTrue(TEXT("Octile path cost is correct"), FMath::IsNearlyEqual(Path.TotalCost, 2.0f * UE_SQRT_2));
 	TestEqual(TEXT("Path reaches requested goal"), Path.Steps.Last().ToCellKey, 8);
@@ -411,6 +416,245 @@ bool FE2GridMovementCancelTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Cancel preserves current cell"), Unit->GetCurrentCellKey(), 0);
 	TestEqual(TEXT("Cancel preserves source occupancy"), Subsystem->GetCellOwner(0), Unit);
 	TestNull(TEXT("Cancel does not occupy the goal"), Subsystem->GetCellOwner(1));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FE2GridPlacementRevisionTest,
+	"E2Grid.Runtime.Query.PlacementReasonsAndRevision",
+	TestFlags)
+
+bool FE2GridPlacementRevisionTest::RunTest(const FString& Parameters)
+{
+	FRuntimeWorldFixture Fixture;
+	UE2GridSubsystem* Subsystem = Fixture.World->GetSubsystem<UE2GridSubsystem>();
+	UE2GridUnitComponent* Unit = Fixture.AddUnit(FVector::ZeroVector, TEXT("PlacementUnit"));
+	TestEqual(TEXT("Initial revision is zero"), Subsystem->GetRuntimeRevision(), int64(0));
+	TestEqual(
+		TEXT("Placement reports a missing active grid"),
+		Subsystem->QueryPlacement(Unit, 0).Status,
+		EE2GridQueryStatus::NoActiveGrid);
+	TestEqual(TEXT("Pure query does not advance revision"), Subsystem->GetRuntimeRevision(), int64(0));
+
+	AE2GridManager* Manager = Fixture.AddManager(CreateMapAsset(FIntPoint(4, 1), {}, {1}));
+	TestTrue(TEXT("Manager registers"), Subsystem->RegisterManager(Manager));
+	TestEqual(TEXT("Manager change advances revision"), Subsystem->GetRuntimeRevision(), int64(1));
+	TestEqual(
+		TEXT("Null unit is explicit"),
+		Subsystem->QueryPlacement(nullptr, 0).Status,
+		EE2GridQueryStatus::InvalidUnit);
+	TestEqual(
+		TEXT("Missing cell is explicit"),
+		Subsystem->QueryPlacement(Unit, 99).Status,
+		EE2GridQueryStatus::InvalidCell);
+	TestEqual(
+		TEXT("Non-standing cell is explicit"),
+		Subsystem->QueryPlacement(Unit, 1).Status,
+		EE2GridQueryStatus::NotStandable);
+
+	TestEqual(
+		TEXT("Unit registration succeeds"),
+		Subsystem->RegisterUnit(Unit),
+		EE2GridRegistrationStatus::Registered);
+	TestEqual(TEXT("Unit registration advances revision"), Subsystem->GetRuntimeRevision(), int64(2));
+	TestEqual(
+		TEXT("A unit may query its own occupied cell"),
+		Subsystem->QueryPlacement(Unit, 0).Status,
+		EE2GridQueryStatus::Success);
+
+	UE2GridUnitComponent* Blocker = Fixture.AddUnit(FVector(100.0f, 0.0f, 0.0f), TEXT("PlacementBlocker"));
+	Subsystem->RegisterUnit(Blocker);
+	TestEqual(TEXT("Second registration advances revision"), Subsystem->GetRuntimeRevision(), int64(3));
+	TestEqual(
+		TEXT("Other unit occupancy is explicit"),
+		Subsystem->QueryPlacement(Unit, 2).Status,
+		EE2GridQueryStatus::Occupied);
+	TestEqual(
+		TEXT("Free standing cell succeeds"),
+		Subsystem->QueryPlacement(Unit, 3).Status,
+		EE2GridQueryStatus::Success);
+	TestEqual(TEXT("Placement queries remain side-effect free"), Subsystem->GetRuntimeRevision(), int64(3));
+
+	Subsystem->UnregisterUnit(Blocker);
+	TestEqual(TEXT("Unit unregister advances revision"), Subsystem->GetRuntimeRevision(), int64(4));
+	Subsystem->UnregisterUnit(Blocker);
+	TestEqual(TEXT("Repeated unregister is a no-op"), Subsystem->GetRuntimeRevision(), int64(4));
+	Subsystem->UnregisterManager(Manager);
+	TestEqual(TEXT("Manager removal advances revision"), Subsystem->GetRuntimeRevision(), int64(5));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FE2GridStalePathCommitTest,
+	"E2Grid.Runtime.Pathfinding.StaleRevisionCommit",
+	TestFlags)
+
+bool FE2GridStalePathCommitTest::RunTest(const FString& Parameters)
+{
+	FRuntimeWorldFixture Fixture;
+	AE2GridManager* Manager = Fixture.AddManager(CreateMapAsset(FIntPoint(3, 2)));
+	UE2GridSubsystem* Subsystem = Fixture.World->GetSubsystem<UE2GridSubsystem>();
+	Subsystem->RegisterManager(Manager);
+	UE2GridUnitComponent* MovingUnit = Fixture.AddUnit(FVector::ZeroVector, TEXT("VersionedMovingUnit"));
+	Subsystem->RegisterUnit(MovingUnit);
+
+	FE2GridPathResult OldPath;
+	TestTrue(TEXT("Versioned path is found"), Subsystem->FindPath(MovingUnit, 2, OldPath));
+	const int64 PathRevision = OldPath.RuntimeRevision;
+	UE2GridUnitComponent* UnrelatedUnit = Fixture.AddUnit(FVector(100.0f, 50.0f, 0.0f), TEXT("UnrelatedUnit"));
+	Subsystem->RegisterUnit(UnrelatedUnit);
+	TestTrue(TEXT("Runtime changed after preview"), Subsystem->GetRuntimeRevision() > PathRevision);
+
+	FE2GridMoveCommitResult StaleCommit;
+	TestFalse(
+		TEXT("Old path cannot commit"),
+		Subsystem->CommitUnitMoveFromPath(MovingUnit, OldPath, StaleCommit));
+	TestEqual(TEXT("Stale failure is structured"), StaleCommit.Status, EE2GridQueryStatus::StaleRevision);
+	TestEqual(TEXT("Stale commit preserves unit cell"), MovingUnit->GetCurrentCellKey(), 0);
+	TestEqual(TEXT("Stale commit preserves source occupancy"), Subsystem->GetCellOwner(0), MovingUnit);
+
+	FE2GridPathResult FreshPath;
+	TestTrue(TEXT("Fresh path is found"), Subsystem->FindPath(MovingUnit, 2, FreshPath));
+	FE2GridMoveCommitResult FreshCommit;
+	TestTrue(
+		TEXT("Fresh path commits"),
+		Subsystem->CommitUnitMoveFromPath(MovingUnit, FreshPath, FreshCommit));
+	TestEqual(TEXT("Commit result reports success"), FreshCommit.Status, EE2GridQueryStatus::Success);
+	TestEqual(TEXT("Commit updates destination"), MovingUnit->GetCurrentCellKey(), 2);
+	TestEqual(TEXT("Commit result reports new revision"), FreshCommit.RuntimeRevision, Subsystem->GetRuntimeRevision());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FE2GridReachableTest,
+	"E2Grid.Runtime.Query.ReachableBudgetOccupancyAndPath",
+	TestFlags)
+
+bool FE2GridReachableTest::RunTest(const FString& Parameters)
+{
+	FRuntimeWorldFixture Fixture;
+	AE2GridManager* Manager = Fixture.AddManager(CreateMapAsset(FIntPoint(3, 3)));
+	UE2GridSubsystem* Subsystem = Fixture.World->GetSubsystem<UE2GridSubsystem>();
+	Subsystem->RegisterManager(Manager);
+	UE2GridUnitComponent* Unit = Fixture.AddUnit(FVector(50.0f, 50.0f, 0.0f), TEXT("ReachableUnit"));
+	Subsystem->RegisterUnit(Unit);
+
+	FE2GridReachableResult OrthogonalRange;
+	TestTrue(TEXT("One-point Reachable query succeeds"), Subsystem->FindReachableCells(Unit, 1.0f, OrthogonalRange));
+	TestEqual(TEXT("One point reaches start plus four orthogonal cells"), OrthogonalRange.Cells.Num(), 5);
+	TestEqual(TEXT("Reachable set includes start first"), OrthogonalRange.Cells[0].CellKey, 4);
+	TestTrue(TEXT("Start cost is zero"), FMath::IsNearlyZero(OrthogonalRange.Cells[0].Cost));
+
+	UE2GridUnitComponent* Blocker = Fixture.AddUnit(FVector(50.0f, 0.0f, 0.0f), TEXT("ReachableBlocker"));
+	Subsystem->RegisterUnit(Blocker);
+	FE2GridReachableResult BlockedRange;
+	TestTrue(TEXT("Occupied Reachable query succeeds"), Subsystem->FindReachableCells(Unit, 1.0f, BlockedRange));
+	TestEqual(TEXT("Occupied neighbor is excluded"), BlockedRange.Cells.Num(), 4);
+	TestFalse(
+		TEXT("Blocked cell is absent"),
+		BlockedRange.Cells.ContainsByPredicate([](const FE2GridReachableCell& Cell)
+		{
+			return Cell.CellKey == 1;
+		}));
+	Subsystem->UnregisterUnit(Blocker);
+
+	FE2GridReachableResult DiagonalRange;
+	TestTrue(
+		TEXT("Diagonal-budget Reachable query succeeds"),
+		Subsystem->FindReachableCells(Unit, UE_SQRT_2, DiagonalRange));
+	TestEqual(TEXT("Diagonal budget reaches the full 3x3 grid"), DiagonalRange.Cells.Num(), 9);
+	const TArray<int32> ExpectedOrder({4, 1, 3, 5, 7, 0, 2, 6, 8});
+	TArray<int32> ActualOrder;
+	for (const FE2GridReachableCell& Cell : DiagonalRange.Cells)
+	{
+		ActualOrder.Add(Cell.CellKey);
+	}
+	TestEqual(TEXT("Reachable cells have deterministic cost/key order"), ActualOrder, ExpectedOrder);
+
+	FE2GridPathResult RebuiltPath;
+	TestTrue(
+		TEXT("Reachable parent tree rebuilds a path"),
+		Subsystem->BuildPathFromReachableResult(DiagonalRange, 0, RebuiltPath));
+	TestEqual(TEXT("Rebuilt path has one diagonal step"), RebuiltPath.Steps.Num(), 1);
+	FE2GridPathResult AStarPath;
+	TestTrue(TEXT("A* reaches the same target"), Subsystem->FindPath(Unit, 0, AStarPath));
+	TestTrue(
+		TEXT("Reachable and A* costs agree"),
+		FMath::IsNearlyEqual(RebuiltPath.TotalCost, AStarPath.TotalCost));
+
+	FE2GridReachableResult InvalidBudget;
+	TestFalse(TEXT("Negative budget is rejected"), Subsystem->FindReachableCells(Unit, -1.0f, InvalidBudget));
+	TestEqual(TEXT("Invalid budget has a reason"), InvalidBudget.Status, EE2GridQueryStatus::InvalidRequest);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FE2GridRangeTest,
+	"E2Grid.Runtime.Query.TopologyRangeMetricsAndDisconnectedAreas",
+	TestFlags)
+
+bool FE2GridRangeTest::RunTest(const FString& Parameters)
+{
+	{
+		FRuntimeWorldFixture Fixture;
+		AE2GridManager* Manager = Fixture.AddManager(CreateMapAsset(FIntPoint(3, 3)));
+		UE2GridSubsystem* Subsystem = Fixture.World->GetSubsystem<UE2GridSubsystem>();
+		Subsystem->RegisterManager(Manager);
+		FE2GridRangeResult ZeroRange;
+		TestTrue(TEXT("Zero range succeeds"), Subsystem->FindCellsInRange(4, 0.0f, EE2GridRangeMetric::StepCount, ZeroRange));
+		TestEqual(TEXT("Zero range contains only start"), ZeroRange.Cells.Num(), 1);
+
+		FE2GridRangeResult StepRange;
+		TestTrue(TEXT("Step range succeeds"), Subsystem->FindCellsInRange(4, 1.0f, EE2GridRangeMetric::StepCount, StepRange));
+		TestEqual(TEXT("One topological step includes diagonals"), StepRange.Cells.Num(), 9);
+		FE2GridRangeResult CostRange;
+		TestTrue(TEXT("Cost range succeeds"), Subsystem->FindCellsInRange(4, 1.0f, EE2GridRangeMetric::TraversalCost, CostRange));
+		TestEqual(TEXT("One traversal cost excludes diagonals"), CostRange.Cells.Num(), 5);
+	}
+
+	{
+		FRuntimeWorldFixture Fixture;
+		AE2GridManager* Manager = Fixture.AddManager(CreateMapAsset(FIntPoint(3, 1), {1}));
+		UE2GridSubsystem* Subsystem = Fixture.World->GetSubsystem<UE2GridSubsystem>();
+		Subsystem->RegisterManager(Manager);
+		FE2GridRangeResult DisconnectedRange;
+		TestTrue(
+			TEXT("Disconnected range query succeeds"),
+			Subsystem->FindCellsInRange(0, 10.0f, EE2GridRangeMetric::StepCount, DisconnectedRange));
+		TestEqual(TEXT("Range does not cross a disconnected area"), DisconnectedRange.Cells.Num(), 1);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FE2GridMovementStaleRollbackTest,
+	"E2Grid.Runtime.Movement.StateChangeDuringMoveRollsBack",
+	TestFlags)
+
+bool FE2GridMovementStaleRollbackTest::RunTest(const FString& Parameters)
+{
+	FRuntimeWorldFixture Fixture;
+	AE2GridManager* Manager = Fixture.AddManager(CreateMapAsset(FIntPoint(2, 2)));
+	UE2GridSubsystem* Subsystem = Fixture.World->GetSubsystem<UE2GridSubsystem>();
+	Subsystem->RegisterManager(Manager);
+	UE2GridUnitComponent* Unit = Fixture.AddUnit(FVector::ZeroVector, TEXT("StaleMovingUnit"));
+	Subsystem->RegisterUnit(Unit);
+	UE2GridMovementComponent* Movement = NewObject<UE2GridMovementComponent>(Unit->GetOwner(), TEXT("StaleMovement"));
+	Unit->GetOwner()->AddInstanceComponent(Movement);
+	Movement->RegisterComponent();
+	Movement->bSweepDuringMovement = false;
+	TestTrue(TEXT("Movement starts from a versioned path"), Movement->MoveToCell(1));
+
+	UE2GridUnitComponent* UnrelatedUnit = Fixture.AddUnit(FVector(50.0f, 50.0f, 0.0f), TEXT("MidMoveUnit"));
+	Subsystem->RegisterUnit(UnrelatedUnit);
+	Movement->TickComponent(1.0f, LEVELTICK_All, nullptr);
+	TestFalse(TEXT("Stale movement finishes as failure"), Movement->IsMoving());
+	TestEqual(TEXT("Failed movement keeps source cell"), Unit->GetCurrentCellKey(), 0);
+	TestEqual(TEXT("Failed movement keeps source occupancy"), Subsystem->GetCellOwner(0), Unit);
+	TestNull(TEXT("Failed movement does not occupy goal"), Subsystem->GetCellOwner(1));
+	TestTrue(
+		TEXT("Failed movement restores source center"),
+		Unit->GetOwner()->GetActorLocation().Equals(FVector::ZeroVector));
 	return true;
 }
 

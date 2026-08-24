@@ -17,6 +17,78 @@ namespace
 	};
 }
 
+namespace
+{
+	EE2GridQueryStatus ToQueryStatus(EE2GridPathStatus Status)
+	{
+		switch (Status)
+		{
+		case EE2GridPathStatus::Success:
+			return EE2GridQueryStatus::Success;
+		case EE2GridPathStatus::InvalidUnit:
+			return EE2GridQueryStatus::InvalidUnit;
+		case EE2GridPathStatus::InvalidGoal:
+			return EE2GridQueryStatus::InvalidCell;
+		case EE2GridPathStatus::GoalOccupied:
+			return EE2GridQueryStatus::Occupied;
+		case EE2GridPathStatus::NoPath:
+		default:
+			return EE2GridQueryStatus::NoPath;
+		}
+	}
+
+	EE2GridPathStatus ToLegacyPathStatus(EE2GridQueryStatus Status)
+	{
+		switch (Status)
+		{
+		case EE2GridQueryStatus::Success:
+			return EE2GridPathStatus::Success;
+		case EE2GridQueryStatus::NoActiveGrid:
+		case EE2GridQueryStatus::InvalidUnit:
+			return EE2GridPathStatus::InvalidUnit;
+		case EE2GridQueryStatus::Occupied:
+			return EE2GridPathStatus::GoalOccupied;
+		case EE2GridQueryStatus::InvalidCell:
+		case EE2GridQueryStatus::NotTraversable:
+		case EE2GridQueryStatus::NotStandable:
+		case EE2GridQueryStatus::InvalidRequest:
+			return EE2GridPathStatus::InvalidGoal;
+		case EE2GridQueryStatus::NoPath:
+		case EE2GridQueryStatus::StaleRevision:
+		default:
+			return EE2GridPathStatus::NoPath;
+		}
+	}
+}
+
+void FE2GridPathResult::Reset(EE2GridPathStatus InStatus)
+{
+	Status = InStatus;
+	QueryStatus = ToQueryStatus(InStatus);
+	StartCellKey = INVALID_GRID_KEY;
+	GoalCellKey = INVALID_GRID_KEY;
+	RuntimeRevision = 0;
+	Steps.Reset();
+	TotalCost = 0.0f;
+}
+
+void FE2GridPathResult::Reset(EE2GridQueryStatus InStatus)
+{
+	Status = ToLegacyPathStatus(InStatus);
+	QueryStatus = InStatus;
+	StartCellKey = INVALID_GRID_KEY;
+	GoalCellKey = INVALID_GRID_KEY;
+	RuntimeRevision = 0;
+	Steps.Reset();
+	TotalCost = 0.0f;
+}
+
+void FE2GridPathResult::SetQueryStatus(EE2GridQueryStatus InStatus)
+{
+	Status = ToLegacyPathStatus(InStatus);
+	QueryStatus = InStatus;
+}
+
 bool FE2GridMapLayout::IsValid() const
 {
 	return FMath::IsFinite(CellSize) && CellSize > UE_SMALL_NUMBER &&

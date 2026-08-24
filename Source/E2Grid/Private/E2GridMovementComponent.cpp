@@ -35,25 +35,49 @@ bool UE2GridMovementComponent::MoveToCell(int32 GoalCellKey)
 	{
 		UnitComponent = GetOwner()->FindComponentByClass<UE2GridUnitComponent>();
 	}
-	if (bMoving || !UnitComponent || !UnitComponent->IsRegistered())
+	if (bMoving)
 	{
+		BroadcastPreflightFailure(EE2GridQueryStatus::InvalidRequest, GoalCellKey);
+		return false;
+	}
+	if (!UnitComponent || !UnitComponent->IsRegistered())
+	{
+		BroadcastPreflightFailure(EE2GridQueryStatus::InvalidUnit, GoalCellKey);
 		return false;
 	}
 
 	UE2GridSubsystem* GridSubsystem = GetWorld()->GetSubsystem<UE2GridSubsystem>();
 	FE2GridPathResult PathResult;
-	if (!GridSubsystem || !GridSubsystem->FindPath(UnitComponent, GoalCellKey, PathResult) ||
-		PathResult.Status != EE2GridPathStatus::Success)
+	if (!GridSubsystem)
 	{
+		BroadcastPreflightFailure(EE2GridQueryStatus::NoActiveGrid, GoalCellKey);
+		return false;
+	}
+	if (!GridSubsystem->FindPath(UnitComponent, GoalCellKey, PathResult))
+	{
+		BroadcastPreflightFailure(PathResult.QueryStatus, GoalCellKey);
+		return false;
+	}
+	const EE2GridQueryStatus ValidationStatus = GridSubsystem->ValidatePath(UnitComponent, PathResult);
+	if (ValidationStatus != EE2GridQueryStatus::Success)
+	{
+		BroadcastPreflightFailure(ValidationStatus, GoalCellKey);
 		return false;
 	}
 
 	RequestedGoalCellKey = GoalCellKey;
-	PathSteps = MoveTemp(PathResult.Steps);
+	ActivePathResult = MoveTemp(PathResult);
 	NextStepIndex = 0;
-	if (PathSteps.IsEmpty())
+	if (ActivePathResult.Steps.IsEmpty())
 	{
+		FE2GridMoveCommitResult Result;
+		Result.Status = EE2GridQueryStatus::Success;
+		Result.FromCellKey = UnitComponent->GetCurrentCellKey();
+		Result.ToCellKey = RequestedGoalCellKey;
+		Result.RuntimeRevision = GridSubsystem->GetRuntimeRevision();
+		OnMovementCompleted.Broadcast(Result);
 		OnMovementFinished.Broadcast(true, RequestedGoalCellKey);
+		ActivePathResult.Reset();
 		RequestedGoalCellKey = INVALID_GRID_KEY;
 		return true;
 	}
@@ -61,7 +85,7 @@ bool UE2GridMovementComponent::MoveToCell(int32 GoalCellKey)
 	bMoving = true;
 	if (!BeginNextStep())
 	{
-		FinishMove(false);
+		FailMove(EE2GridQueryStatus::InvalidCell);
 		return false;
 	}
 	SetComponentTickEnabled(true);
@@ -74,19 +98,20 @@ void UE2GridMovementComponent::CancelMove()
 	{
 		return;
 	}
-	RestoreOccupiedLocation();
-	FinishMove(false);
+	FailMove(EE2GridQueryStatus::InvalidRequest);
 }
 
 bool UE2GridMovementComponent::BeginNextStep()
 {
-	if (!PathSteps.IsValidIndex(NextStepIndex))
+	if (!ActivePathResult.Steps.IsValidIndex(NextStepIndex))
 	{
 		return false;
 	}
 	if (UE2GridSubsystem* GridSubsystem = GetWorld()->GetSubsystem<UE2GridSubsystem>())
 	{
-		return GridSubsystem->CellToWorld(PathSteps[NextStepIndex].ToCellKey, CurrentStepTarget);
+		return GridSubsystem->CellToWorld(
+			ActivePathResult.Steps[NextStepIndex].ToCellKey,
+			CurrentStepTarget);
 	}
 	return false;
 }
@@ -135,7 +160,7 @@ void UE2GridMovementComponent::TickComponent(
 					return Hit.bBlockingHit;
 				}))
 			{
-				CancelMove();
+				FailMove(EE2GridQueryStatus::NotTraversable);
 				return;
 			}
 		}
@@ -143,7 +168,7 @@ void UE2GridMovementComponent::TickComponent(
 
 	if (!Owner->SetActorLocation(NewLocation, false, nullptr, ETeleportType::None))
 	{
-		CancelMove();
+		FailMove(EE2GridQueryStatus::NotTraversable);
 		return;
 	}
 
@@ -154,35 +179,74 @@ void UE2GridMovementComponent::TickComponent(
 
 	Owner->SetActorLocation(CurrentStepTarget, false, nullptr, ETeleportType::TeleportPhysics);
 	++NextStepIndex;
-	if (NextStepIndex < PathSteps.Num())
+	if (NextStepIndex < ActivePathResult.Steps.Num())
 	{
 		if (!BeginNextStep())
 		{
-			CancelMove();
+			FailMove(EE2GridQueryStatus::InvalidCell);
 		}
 		return;
 	}
 
 	UE2GridSubsystem* GridSubsystem = GetWorld()->GetSubsystem<UE2GridSubsystem>();
-	const bool bCommitted = GridSubsystem &&
-		GridSubsystem->CommitUnitMove(UnitComponent, PathSteps);
+	FE2GridMoveCommitResult CommitResult;
+	const bool bCommitted = GridSubsystem && GridSubsystem->CommitUnitMoveFromPath(
+		UnitComponent,
+		ActivePathResult,
+		CommitResult);
+	if (!GridSubsystem)
+	{
+		CommitResult.Status = EE2GridQueryStatus::NoActiveGrid;
+		CommitResult.FromCellKey = UnitComponent ? UnitComponent->GetCurrentCellKey() : INVALID_GRID_KEY;
+		CommitResult.ToCellKey = RequestedGoalCellKey;
+	}
 	if (!bCommitted)
 	{
 		RestoreOccupiedLocation();
 	}
-	FinishMove(bCommitted);
+	FinishMove(CommitResult);
 }
 
-void UE2GridMovementComponent::FinishMove(bool bSucceeded)
+void UE2GridMovementComponent::FailMove(EE2GridQueryStatus Status)
+{
+	RestoreOccupiedLocation();
+	FE2GridMoveCommitResult Result;
+	Result.Status = Status;
+	Result.FromCellKey = UnitComponent ? UnitComponent->GetCurrentCellKey() : INVALID_GRID_KEY;
+	Result.ToCellKey = RequestedGoalCellKey;
+	if (const UE2GridSubsystem* GridSubsystem = GetWorld()->GetSubsystem<UE2GridSubsystem>())
+	{
+		Result.RuntimeRevision = GridSubsystem->GetRuntimeRevision();
+	}
+	FinishMove(Result);
+}
+
+void UE2GridMovementComponent::FinishMove(const FE2GridMoveCommitResult& Result)
 {
 	const int32 FinishedGoal = RequestedGoalCellKey;
 	bMoving = false;
-	PathSteps.Reset();
+	ActivePathResult.Reset();
 	NextStepIndex = 0;
 	RequestedGoalCellKey = INVALID_GRID_KEY;
 	CurrentStepTarget = FVector::ZeroVector;
 	SetComponentTickEnabled(false);
-	OnMovementFinished.Broadcast(bSucceeded, FinishedGoal);
+	OnMovementCompleted.Broadcast(Result);
+	OnMovementFinished.Broadcast(Result.Status == EE2GridQueryStatus::Success, FinishedGoal);
+}
+
+void UE2GridMovementComponent::BroadcastPreflightFailure(
+	EE2GridQueryStatus Status,
+	int32 GoalCellKey)
+{
+	FE2GridMoveCommitResult Result;
+	Result.Status = Status;
+	Result.FromCellKey = UnitComponent ? UnitComponent->GetCurrentCellKey() : INVALID_GRID_KEY;
+	Result.ToCellKey = GoalCellKey;
+	if (const UE2GridSubsystem* GridSubsystem = GetWorld()->GetSubsystem<UE2GridSubsystem>())
+	{
+		Result.RuntimeRevision = GridSubsystem->GetRuntimeRevision();
+	}
+	OnMovementCompleted.Broadcast(Result);
 }
 
 void UE2GridMovementComponent::RestoreOccupiedLocation()

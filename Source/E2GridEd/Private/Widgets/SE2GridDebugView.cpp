@@ -3,6 +3,8 @@
 #include "E2GridEdMode.h"
 #include "E2GridManager.h"
 #include "E2GridMapAsset.h"
+#include "E2GridSubsystem.h"
+#include "Engine/World.h"
 #include "Styling/AppStyle.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/SBoxPanel.h"
@@ -41,6 +43,14 @@ void SE2GridDebugView::Construct(const FArguments& InArgs)
 				SNew(STextBlock)
 				.AutoWrapText(true)
 				.Text(this, &SE2GridDebugView::GetAssetSummary)
+			]
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(0.0f, 4.0f)
+			[
+				SNew(STextBlock)
+				.AutoWrapText(true)
+				.Text(this, &SE2GridDebugView::GetRuntimeSummary)
 			]
 			+ SVerticalBox::Slot()
 			.AutoHeight()
@@ -88,6 +98,21 @@ FText SE2GridDebugView::GetAssetSummary() const
 		FText::AsNumber(Layout.CellSize),
 		FText::AsNumber(Asset->GetCells().Num()),
 		bValid ? LOCTEXT("Valid", "Valid") : FText::FromString(ValidationError));
+}
+
+FText SE2GridDebugView::GetRuntimeSummary() const
+{
+	const AE2GridManager* Manager = EditorMode.IsValid() ? EditorMode->GetActiveGridManager() : nullptr;
+	const UWorld* World = Manager ? Manager->GetWorld() : nullptr;
+	const UE2GridSubsystem* Subsystem = World ? World->GetSubsystem<UE2GridSubsystem>() : nullptr;
+	if (!Subsystem)
+	{
+		return LOCTEXT("NoRuntime", "Runtime Revision: unavailable");
+	}
+	return FText::Format(
+		LOCTEXT("RuntimeSummary", "Runtime Revision: {0}\nActive Runtime Manager: {1}"),
+		FText::AsNumber(Subsystem->GetRuntimeRevision()),
+		FText::FromString(GetNameSafe(Subsystem->GetActiveManager())));
 }
 
 #undef LOCTEXT_NAMESPACE

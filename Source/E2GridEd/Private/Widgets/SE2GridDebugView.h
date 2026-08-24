@@ -17,6 +17,7 @@ public:
 private:
 	FText GetManagerSummary() const;
 	FText GetAssetSummary() const;
+	FText GetRuntimeSummary() const;
 
 	TWeakObjectPtr<UE2GridEdMode> EditorMode;
 };

@@ -4,6 +4,8 @@
 #include "Engine/EngineTypes.h"
 #include "E2GridRuntimeData.generated.h"
 
+class UE2GridUnitComponent;
+
 constexpr int32 INVALID_GRID_KEY = INDEX_NONE;
 
 UENUM(BlueprintType, meta = (Bitflags, UseEnumValuesAsMaskValuesInEditor = "true"))
@@ -23,6 +25,39 @@ enum class EE2GridPathStatus : uint8
 	InvalidGoal,
 	GoalOccupied,
 	NoPath,
+};
+
+/** Unified status for side-effect-free queries and versioned move commits. */
+UENUM(BlueprintType)
+enum class EE2GridQueryStatus : uint8
+{
+	Success,
+	NoActiveGrid,
+	InvalidUnit,
+	InvalidCell,
+	NotTraversable,
+	NotStandable,
+	Occupied,
+	NoPath,
+	StaleRevision,
+	InvalidRequest,
+};
+
+UENUM(BlueprintType)
+enum class EE2GridRangeMetric : uint8
+{
+	StepCount,
+	TraversalCost,
+};
+
+UENUM(BlueprintType)
+enum class EE2GridStateChangeKind : uint8
+{
+	None,
+	ManagerChanged,
+	UnitRegistered,
+	UnitUnregistered,
+	OccupancyMoved,
 };
 
 UENUM(BlueprintType)
@@ -129,8 +164,22 @@ struct E2GRID_API FE2GridPathResult
 {
 	GENERATED_BODY()
 
+	/** Legacy path-only status. QueryStatus is authoritative for new callers. */
 	UPROPERTY(BlueprintReadOnly, Category = "Path")
 	EE2GridPathStatus Status = EE2GridPathStatus::NoPath;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Path")
+	EE2GridQueryStatus QueryStatus = EE2GridQueryStatus::NoPath;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Path")
+	int32 StartCellKey = INVALID_GRID_KEY;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Path")
+	int32 GoalCellKey = INVALID_GRID_KEY;
+
+	/** Runtime state snapshot used to produce this path. */
+	UPROPERTY(BlueprintReadOnly, Category = "Path")
+	int64 RuntimeRevision = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Path")
 	TArray<FE2GridPathStep> Steps;
@@ -138,12 +187,166 @@ struct E2GRID_API FE2GridPathResult
 	UPROPERTY(BlueprintReadOnly, Category = "Path")
 	float TotalCost = 0.0f;
 
-	void Reset(EE2GridPathStatus InStatus = EE2GridPathStatus::NoPath)
+	void Reset(EE2GridPathStatus InStatus = EE2GridPathStatus::NoPath);
+	void Reset(EE2GridQueryStatus InStatus);
+	void SetQueryStatus(EE2GridQueryStatus InStatus);
+};
+
+USTRUCT(BlueprintType)
+struct E2GRID_API FE2GridPlacementResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Placement")
+	EE2GridQueryStatus Status = EE2GridQueryStatus::InvalidRequest;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Placement")
+	int32 CellKey = INVALID_GRID_KEY;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Placement")
+	int64 RuntimeRevision = 0;
+};
+
+USTRUCT(BlueprintType)
+struct E2GRID_API FE2GridMoveCommitResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Movement")
+	EE2GridQueryStatus Status = EE2GridQueryStatus::InvalidRequest;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Movement")
+	int32 FromCellKey = INVALID_GRID_KEY;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Movement")
+	int32 ToCellKey = INVALID_GRID_KEY;
+
+	/** Current runtime revision after success, or at the time of failure. */
+	UPROPERTY(BlueprintReadOnly, Category = "Movement")
+	int64 RuntimeRevision = 0;
+};
+
+USTRUCT(BlueprintType)
+struct E2GRID_API FE2GridReachableCell
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Reachable")
+	int32 CellKey = INVALID_GRID_KEY;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Reachable")
+	float Cost = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Reachable")
+	int32 ParentCellKey = INVALID_GRID_KEY;
+};
+
+USTRUCT(BlueprintType)
+struct E2GRID_API FE2GridReachableResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Reachable")
+	EE2GridQueryStatus Status = EE2GridQueryStatus::InvalidRequest;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Reachable")
+	int32 StartCellKey = INVALID_GRID_KEY;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Reachable")
+	float Budget = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Reachable")
+	int64 RuntimeRevision = 0;
+
+	/** Legal standing destinations, sorted by Cost then CellKey. Includes the start cell. */
+	UPROPERTY(BlueprintReadOnly, Category = "Reachable")
+	TArray<FE2GridReachableCell> Cells;
+
+	void Reset(EE2GridQueryStatus InStatus = EE2GridQueryStatus::InvalidRequest)
 	{
 		Status = InStatus;
-		Steps.Reset();
-		TotalCost = 0.0f;
+		StartCellKey = INVALID_GRID_KEY;
+		Budget = 0.0f;
+		RuntimeRevision = 0;
+		Cells.Reset();
+		TraversalTree.Reset();
 	}
+
+private:
+	/** Includes traversal-only cells so every ParentCellKey chain can be reconstructed. */
+	UPROPERTY()
+	TArray<FE2GridReachableCell> TraversalTree;
+
+	friend class FE2GridPathFinding;
+	friend class UE2GridSubsystem;
+};
+
+USTRUCT(BlueprintType)
+struct E2GRID_API FE2GridRangeCell
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Range")
+	int32 CellKey = INVALID_GRID_KEY;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Range")
+	float Distance = 0.0f;
+};
+
+USTRUCT(BlueprintType)
+struct E2GRID_API FE2GridRangeResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Range")
+	EE2GridQueryStatus Status = EE2GridQueryStatus::InvalidRequest;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Range")
+	int32 StartCellKey = INVALID_GRID_KEY;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Range")
+	float MaxRange = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Range")
+	EE2GridRangeMetric Metric = EE2GridRangeMetric::StepCount;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Range")
+	int64 RuntimeRevision = 0;
+
+	/** Cells sorted by Distance then CellKey. Includes the start cell. */
+	UPROPERTY(BlueprintReadOnly, Category = "Range")
+	TArray<FE2GridRangeCell> Cells;
+
+	void Reset(EE2GridQueryStatus InStatus = EE2GridQueryStatus::InvalidRequest)
+	{
+		Status = InStatus;
+		StartCellKey = INVALID_GRID_KEY;
+		MaxRange = 0.0f;
+		Metric = EE2GridRangeMetric::StepCount;
+		RuntimeRevision = 0;
+		Cells.Reset();
+	}
+};
+
+USTRUCT(BlueprintType)
+struct E2GRID_API FE2GridStateDelta
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "State")
+	EE2GridStateChangeKind ChangeKind = EE2GridStateChangeKind::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "State")
+	TObjectPtr<UE2GridUnitComponent> Unit = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "State")
+	int32 FromCellKey = INVALID_GRID_KEY;
+
+	UPROPERTY(BlueprintReadOnly, Category = "State")
+	int32 ToCellKey = INVALID_GRID_KEY;
+
+	UPROPERTY(BlueprintReadOnly, Category = "State")
+	int64 RuntimeRevision = 0;
 };
 
 USTRUCT(BlueprintType)
